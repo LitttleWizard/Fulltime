@@ -783,57 +783,72 @@
       const m = box.getBoundingClientRect();
       const W = Math.max(340, Math.round(m.width) || 520);
       const H = Math.max(200, Math.round(m.height) || 280);
-      const PAD_L = 34, PAD_R = 14, PAD_T = 12, PAD_B = 26;
+      const PAD_L = 36, PAD_R = 44, PAD_T = 14, PAD_B = 26;
       const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
       const x = min => PAD_L + (min / 90) * plotW;
-      const y = frac => PAD_T + (1 - frac) * plotH;
+      const y = f => PAD_T + (1 - f) * plotH;
 
-      // sample every 2 minutes
       const pts = [];
-      for (let min = 0; min <= 90; min += 2) {
+      for (let min = 0; min <= 90; min += 1.5) {
         const w = Live.winProb(p.lh, p.la, hs, as, 90 - min);
         pts.push({ min, h: w.home, d: w.draw, a: w.away });
       }
+      const line = key => pts.map((q, i) =>
+        `${i ? 'L' : 'M'} ${x(q.min).toFixed(1)} ${y(q[key]).toFixed(1)}`).join(' ');
 
-      // stacked bands: home at the bottom, then draw, then away
-      const band = (lowFn, highFn) => {
-        const top = pts.map(q => `${x(q.min).toFixed(1)} ${y(highFn(q)).toFixed(1)}`);
-        const bot = pts.slice().reverse().map(q => `${x(q.min).toFixed(1)} ${y(lowFn(q)).toFixed(1)}`);
-        return `M ${top.join(' L ')} L ${bot.join(' L ')} Z`;
-      };
-      const areas =
-        `<path class="wp-area home" d="${band(() => 0, q => q.h)}"/>` +
-        `<path class="wp-area draw" d="${band(q => q.h, q => q.h + q.d)}"/>` +
-        `<path class="wp-area away" d="${band(q => q.h + q.d, () => 1)}"/>`;
-
+      // gridlines, matching the Elo chart's treatment
       const grid = [];
       [0, 0.25, 0.5, 0.75, 1].forEach(f => {
         const gy = y(f);
         grid.push(`<line class="trend-gridline" x1="${PAD_L}" x2="${W - PAD_R}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"/>`);
-        grid.push(`<text class="wp-axis-label" x="${PAD_L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end">${Math.round(f * 100)}</text>`);
+        grid.push(`<text class="trend-axis-label" x="${PAD_L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end">${Math.round(f * 100)}%</text>`);
       });
       const xTicks = [0, 15, 30, 45, 60, 75, 90].map(min =>
-        `<text class="wp-axis-label" x="${x(min).toFixed(1)}" y="${(PAD_T + plotH + 15).toFixed(1)}" text-anchor="${min === 0 ? 'start' : min === 90 ? 'end' : 'middle'}">${min}'</text>`
+        `<text class="trend-axis-label" x="${x(min).toFixed(1)}" y="${(PAD_T + plotH + 15).toFixed(1)}" text-anchor="${min === 0 ? 'start' : min === 90 ? 'end' : 'middle'}">${min}'</text>`
       ).join('');
+
+      // three thin lines, same weight as the Elo chart — no saturated blocks
+      const series = [
+        { k: 'h', c: 'var(--series-home)', name: home },
+        { k: 'd', c: 'var(--draw)',        name: 'Draw' },
+        { k: 'a', c: 'var(--series-away)', name: away }
+      ];
+      const lines = series.map(s2 => `<path class="trend-line" d="${line(s2.k)}" stroke="${s2.c}"/>`).join('');
+
+      // Label each line at the meaningful moment — the current minute for a live
+      // match, kick-off otherwise. Labelling at 90' would just read 100/0/0,
+      // since with no time left the current score decides it.
+      const markMin = nowMin != null ? nowMin : 0;
+      const markPt = pts.reduce((best, q) =>
+        Math.abs(q.min - markMin) < Math.abs(best.min - markMin) ? q : best, pts[0]);
+      const labelLeft = markMin > 60;                       // flip side near the right edge
+      const ends = series
+        .map(s2 => ({ ...s2, v: markPt[s2.k], yy: y(markPt[s2.k]) }))
+        .sort((a2, b2) => a2.yy - b2.yy)
+        .map((s2, i, arr) => {
+          if (i > 0 && s2.yy - arr[i - 1].yy < 13) s2.yy = arr[i - 1].yy + 13;
+          return `<circle class="trend-end-dot" r="3.6" cx="${x(markMin).toFixed(1)}" cy="${y(markPt[s2.k]).toFixed(1)}" fill="${s2.c}"/>` +
+                 `<text class="trend-end-label" x="${(x(markMin) + (labelLeft ? -8 : 8)).toFixed(1)}" y="${(s2.yy + 3.5).toFixed(1)}" ` +
+                 `text-anchor="${labelLeft ? 'end' : 'start'}" fill="${s2.c}">${Math.round(s2.v * 100)}%</text>`;
+        }).join('');
 
       let nowEls = '';
       if (nowMin != null) {
         nowEls =
           `<line class="wp-now" x1="${x(nowMin).toFixed(1)}" x2="${x(nowMin).toFixed(1)}" y1="${PAD_T}" y2="${(PAD_T + plotH).toFixed(1)}"/>` +
-          `<text class="wp-now-label" x="${x(nowMin).toFixed(1)}" y="${(PAD_T - 2).toFixed(1)}" text-anchor="middle">NOW</text>`;
+          `<text class="wp-now-label" x="${x(nowMin).toFixed(1)}" y="${(PAD_T - 3).toFixed(1)}" text-anchor="middle">${Math.round(nowMin)}'</text>`;
       }
 
       box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-          ${areas}${grid.join('')}${xTicks}${nowEls}
+          ${grid.join('')}${xTicks}${nowEls}${lines}${ends}
         </svg>`;
 
       const cur = Live.winProb(p.lh, p.la, hs, as, inPlay ? Live.minsLeft(lv) : 90);
       document.getElementById('wp-caption').innerHTML = inPlay
-        ? `At <b>${hs}–${as}</b>, ${Live.minsLeft(lv)} min left: <b>${(cur.home*100).toFixed(0)}%</b> ${home} ·
-           <b>${(cur.draw*100).toFixed(0)}%</b> draw · <b>${(cur.away*100).toFixed(0)}%</b> ${away}.
-           The curve is where it goes if the score stays put — note the draw squeezing everything as time runs out.`
-        : `Not in play, so this is the pre-match shape from <b>0–0</b>: how the three outcomes split
-           if the match were goalless at each minute. The draw takes over as time runs out.`;
+        ? `Live at <b>${hs}–${as}</b>, ${Live.minsLeft(lv)} min left — <b>${(cur.home*100).toFixed(0)}%</b> ${home},
+           <b>${(cur.draw*100).toFixed(0)}%</b> draw, <b>${(cur.away*100).toFixed(0)}%</b> ${away}.
+           Lines show where each outcome heads if the score stays as it is.`
+        : `Not in play — the shape from <b>0–0</b>: how each outcome moves as a goalless match runs down.`;
     }
 
     function setChartView(v) {
