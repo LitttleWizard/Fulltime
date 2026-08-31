@@ -176,6 +176,13 @@
       text-overflow: ellipsis;
     }
     @media (max-width: 880px) { .nav-tagline { display: none; } }
+    /* the season tag squeezes the league tabs on phones — the tabs already
+       say which league you're in, so drop it there */
+    @media (max-width: 700px) {
+      nav .term-tag { display: none; }
+      nav { padding: 0 12px; gap: 10px; }
+      .nav-logo { font-size: 14px; }
+    }
 
     /* ── League tabs ── */
     .league-tabs {
@@ -221,15 +228,54 @@
       .terminal { grid-template-columns: 250px minmax(0, 1fr) 300px; }
     }
     /* Below this the shell unwinds into a normal scrolling document */
+    /* ── Mobile: one panel at a time, with a bottom tab bar ──
+       Stacking all three columns buried the prediction under 20 watchlist rows.
+       Instead the app keeps its shell, shows a single panel, and lands on the
+       prediction — the thing you actually came for. */
     @media (max-width: 1080px) {
-      body { overflow: auto; }
-      html, body { height: auto; }
-      .shell { height: auto; min-height: 100%; }
-      nav { position: sticky; top: 0; z-index: 50; }
       .terminal { grid-template-columns: 1fr; }
-      .term-watchlist, .term-quotes { border-right: none; border-left: none; border-top: 1px solid var(--border); }
-      .scroll-y { overflow: visible; }
-      .panel-body { flex: none; }
+      .term-col { display: none; }
+      .term-col.m-active { display: flex; }
+      .term-watchlist, .term-quotes { border-right: none; border-left: none; }
+      .shell { padding-bottom: env(safe-area-inset-bottom); }
+    }
+
+    .mtabs {
+      display: none;
+      flex-shrink: 0;
+      border-top: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .mtab {
+      flex: 1;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      padding: 9px 4px calc(9px + env(safe-area-inset-bottom));
+      background: none; border: none; cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
+      color: var(--muted);
+      transition: color .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .mtab .mtab-ico { font-size: 15px; line-height: 1; }
+    .mtab.is-on { color: var(--brand); }
+    .mtab:focus-visible { outline: 1px solid var(--brand-border); outline-offset: -2px; }
+
+    /* Touch sizing: comfortable targets and no accidental zoom on focus */
+    @media (max-width: 1080px) {
+      .mtabs { display: flex; }
+      .wl-row { padding: 13px 16px; min-height: 60px; }
+      .ticker-row { padding: 13px 16px; min-height: 70px; }
+      select { font-size: 16px; padding: 11px 13px; }   /* 16px avoids iOS zoom */
+      .tb-btn { padding: 9px 13px; font-size: 12.5px; }
+      .toolbar { gap: 8px; }
+      .center-head { padding: 12px 16px; }
+      .center-body { padding: 16px 16px 26px; }
+      .symbol-teams { font-size: 18px; }
+      .symbol-price { font-size: 28px; }
+      .duo, .duo.chart-duo { grid-template-columns: 1fr; gap: 22px; }
+      .trend-svg-box { min-height: 200px; }
+      .panel-head { padding: 12px 16px; }
     }
 
     .term-title {
@@ -902,4 +948,18 @@
     .proj-total {
       font-family: 'JetBrains Mono', monospace; font-size: 11px;
       color: var(--muted); margin-left: auto;
+    }
+
+    /* ── Cross-document view transitions (EPL <-> NFL) ──
+       The nav and shell are named so they persist across the navigation while
+       the panels cross-fade, instead of the page blinking white and rebuilding. */
+    @view-transition { navigation: auto; }
+    nav { view-transition-name: app-nav; }
+    .terminal { view-transition-name: app-body; }
+    .loading { view-transition-name: app-body; }
+    ::view-transition-old(app-body),
+    ::view-transition-new(app-body) { animation-duration: 220ms; }
+    ::view-transition-group(app-nav) { animation-duration: 200ms; }
+    @media (prefers-reduced-motion: reduce) {
+      ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
     }

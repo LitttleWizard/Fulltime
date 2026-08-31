@@ -12,6 +12,17 @@
   <link rel="stylesheet" href="terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
   <script src="trend-chart.js"></script>
+  <script src="mobile-nav.js" defer></script>
+  <!-- Prerender the sibling tab on hover so switching leagues is instant:
+       the data fetch and the model fit both happen before the click. -->
+  <script type="speculationrules">
+  {
+    "prerender": [{
+      "urls": ["nfl.html"],
+      "eagerness": "moderate"
+    }]
+  }
+  </script>
 </head>
 <body>
 
@@ -916,6 +927,9 @@
     if (window.FulltimeTheme) {
       window.FulltimeTheme.mount(document.getElementById('theme-toggle'));
       window.onFulltimeThemeChange = () => { if (elo) renderTrendChart(elo, homeSelect.value, awaySelect.value); };
+    }
+    window.onFulltimePanelShown = () => {
+      if (elo) renderTrendChart(elo, homeSelect.value, awaySelect.value);
     }
 
     render();
