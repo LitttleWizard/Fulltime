@@ -10,6 +10,11 @@
  *      state: 'pre' | 'in' | 'post'
  *      home/away are already normalised to the keys each tab's model uses.
  *
+ *   Live.detail(league, eventId, rawHome)  ->  { goals, feed, lineups }
+ *      One summary request yielding everything the match view needs: goal
+ *      timings, the play-by-play feed (goals, cards, substitutions, injuries)
+ *      and the starting XI once ESPN publishes it.
+ *
  *   Live.winProb(lh, la, hs, as, minsLeft)  ->  {home, draw, away}
  *      In-play win probability for football, from the Dixon-Coles expected
  *      goals. Remaining goals over the remaining time are Poisson at a
@@ -123,36 +128,114 @@
     return Math.max(0, 90 - Math.min(elapsed, 90));
   }
 
-  /**
-   * Goal timings for one match, so the probability path can be rebuilt exactly
-   * rather than sampled. ESPN puts them in `keyEvents` with scoringPlay: true.
-   * Returns [{ min, side: 'home' | 'away' }] sorted by minute.
+  /* ── match detail: goals, play-by-play, lineups ────────────────────────
+   *
+   * All three come from the same `summary` document, so they are fetched once
+   * and split apart here rather than costing a request each.
    */
-  async function timeline(league, eventId, rawHome) {
+
+  async function summary(league, eventId) {
     const path = PATHS[league];
-    if (!path || !eventId) return [];
+    if (!path || !eventId) return null;
     try {
       const r = await fetch(`${ESPN}/${path}/summary?event=${encodeURIComponent(eventId)}`,
                             { cache: 'no-store' });
-      if (!r.ok) return [];
-      const d = await r.json();
-      const goals = [];
-      for (const e of (d.keyEvents || [])) {
-        if (!e.scoringPlay) continue;
-        // clock reads like "24'" or "45'+4'" — the leading number is the minute
-        const disp = (e.clock && e.clock.displayValue) || '';
-        const m = /(\d+)/.exec(disp);
-        if (!m) continue;
-        const team = (e.team && e.team.displayName) || '';
-        goals.push({ min: Math.min(90, parseInt(m[1], 10)),
-                     side: team && rawHome && team === rawHome ? 'home' : 'away' });
-      }
-      goals.sort((a, b) => a.min - b.min);
-      return goals;
+      return r.ok ? await r.json() : null;
     } catch (e) {
-      return [];
+      return null;
     }
   }
 
-  global.Live = { fetch: fetchLive, winProb, minsLeft, timeline };
+  /** Leading number of an ESPN clock string: "24'" and "45'+4'" both give 24. */
+  function clockMin(e) {
+    const m = /(\d+)/.exec((e.clock && e.clock.displayValue) || '');
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  /**
+   * Classify a keyEvent into the handful of kinds the feed renders.
+   * ESPN's `type.text` is free-form ("Goal - Header", "Yellow Card"), so this
+   * matches loosely and falls back to a neutral kind rather than dropping the
+   * event.
+   */
+  function classify(e) {
+    const t = ((e.type && e.type.text) || '').toLowerCase();
+    const txt = (e.text || '').toLowerCase();
+    if (e.scoringPlay || t.startsWith('goal')) {
+      return t.includes('own') ? 'own-goal'
+           : (t.includes('penalty') || txt.includes('penalty')) ? 'pen-goal' : 'goal';
+    }
+    if (t.includes('red card') || t.includes('second yellow')) return 'red';
+    if (t.includes('yellow')) return 'yellow';
+    if (t.includes('substitution')) {
+      // ESPN spells injuries out in the substitution text itself; there is no
+      // separate injury event to read.
+      return txt.includes('injur') ? 'injury' : 'sub';
+    }
+    if (t.includes('penalty')) return 'pen-miss';
+    if (t.includes('kickoff') || t.includes('halftime') || t.includes('half') ||
+        t.includes('end regular')) return 'period';
+    return 'note';
+  }
+
+  /**
+   * Full detail for one match.
+   *   goals   [{min, side}]                       — for the win-probability path
+   *   feed    [{min, kind, side, text, players}]  — newest last
+   *   lineups {home: [names], away: [names], formation: {...}} or null
+   *
+   * ESPN only populates rosters near kickoff, so `lineups` is null for a
+   * fixture that is still days away — callers must handle that.
+   */
+  async function detail(league, eventId, rawHome) {
+    const d = await summary(league, eventId);
+    if (!d) return { goals: [], feed: [], lineups: null };
+
+    const sideOf = e => {
+      const team = (e.team && e.team.displayName) || '';
+      return team && rawHome && team === rawHome ? 'home' : (team ? 'away' : null);
+    };
+
+    const goals = [], feed = [];
+    for (const e of (d.keyEvents || [])) {
+      const min = clockMin(e);
+      const kind = classify(e);
+      if (e.scoringPlay && min != null) {
+        goals.push({ min: Math.min(90, min), side: sideOf(e) || 'away' });
+      }
+      feed.push({
+        min, kind, side: sideOf(e),
+        text: e.text || '',
+        players: (e.participants || [])
+          .map(p => (p.athlete && p.athlete.displayName) || '')
+          .filter(Boolean)
+      });
+    }
+    goals.sort((a, b) => a.min - b.min);
+    feed.sort((a, b) => (a.min == null ? -1 : a.min) - (b.min == null ? -1 : b.min));
+
+    let lineups = null;
+    for (const t of (d.rosters || [])) {
+      const side = t.homeAway === 'home' ? 'home' : 'away';
+      const starters = (t.roster || [])
+        .filter(p => p.starter)
+        .map(p => (p.athlete && p.athlete.displayName) || '')
+        .filter(Boolean);
+      if (starters.length >= 10) {
+        lineups = lineups || { home: [], away: [], formation: {} };
+        lineups[side] = starters;
+        lineups.formation[side] = t.formation || '';
+      }
+    }
+    if (lineups && (!lineups.home.length || !lineups.away.length)) lineups = null;
+
+    return { goals, feed, lineups };
+  }
+
+  /** Back-compat: goal timings only. */
+  async function timeline(league, eventId, rawHome) {
+    return (await detail(league, eventId, rawHome)).goals;
+  }
+
+  global.Live = { fetch: fetchLive, winProb, minsLeft, timeline, detail };
 })(window);

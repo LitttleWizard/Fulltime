@@ -17,6 +17,7 @@
   <!-- not deferred: the inline page script constructs TrendChart directly -->
   <script src="dixon-coles.js"></script>
   <script src="live.js"></script>
+  <script src="players.js"></script>
   <script src="trend-chart.js"></script>
   <script src="mobile-nav.js" defer></script>
   <!-- Prerender the sibling tab on hover so switching leagues is instant:
@@ -156,6 +157,28 @@
             </div>
           </div>
 
+          <!-- Team sheet + match feed. Hidden until ESPN publishes a lineup,
+               which it only does near kickoff — a fixture days away has none. -->
+          <div class="center-section" id="sheet-section" style="display:none;">
+            <div class="sheet-head">
+              <div class="card-title">Team Sheet</div>
+              <div class="sheet-note" id="sheet-note"></div>
+            </div>
+            <div class="sheet-grid">
+              <div class="sheet-col" id="sheet-home"></div>
+              <div class="sheet-col" id="sheet-away"></div>
+            </div>
+            <div class="sheet-foot" id="sheet-foot"></div>
+          </div>
+
+          <div class="center-section" id="feed-section" style="display:none;">
+            <div class="sheet-head">
+              <div class="card-title">Match Feed</div>
+              <div class="sheet-note" id="feed-note"></div>
+            </div>
+            <div class="feed-list" id="feed-list"></div>
+          </div>
+
           <div class="center-section">
             <div class="metric-compare">
               <div class="card-title">Form Comparison — Last 8 Matches</div>
@@ -215,6 +238,12 @@
     const loadingStatus = document.getElementById('loading-status');
     const appEl = document.getElementById('app');
     const errorEl = document.getElementById('error');
+
+    // Player names and commentary come straight from ESPN and land in
+    // innerHTML, so they get escaped on the way in.
+    const esc = s => String(s == null ? '' : s)
+      .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                                   '"': '&quot;', "'": '&#39;' }[c]));
 
     function showError(msg) {
       loadingEl.style.display = 'none';
@@ -668,11 +697,25 @@
       const lv = liveFor(home, away);
       const inPlay = lv && lv.state === 'in';
       let shown = { homeWin: p.homeWin, draw: p.draw, awayWin: p.awayWin };
+
+      // Team-sheet adjustment. Only applies once a real lineup exists, and only
+      // to the pre-match price: in play the score itself carries far more
+      // information than who started. Measured worth is small — see players.js.
+      const sheet = lineupDeltas(home, away);
+      if (!inPlay && sheet && sheet.dh != null && sheet.da != null) {
+        const adj = Players.adjust(
+          { home: shown.homeWin, draw: shown.draw, away: shown.awayWin },
+          sheet.dh, sheet.da);
+        shown = { homeWin: adj.home, draw: adj.draw, awayWin: adj.away };
+      }
+
       if (inPlay) {
         const left = Live.minsLeft(lv);
         const w = Live.winProb(p.lh, p.la, lv.hs, lv.as, left);
         shown = { homeWin: w.home, draw: w.draw, awayWin: w.away };
       }
+      renderSheet(home, away, sheet);
+      renderFeed(home, away);
 
       const banner = document.getElementById('live-banner');
       if (banner) {
@@ -901,6 +944,7 @@
     // Purely additive: if the feed is unavailable, liveByKey stays empty and
     // every render below behaves exactly as it did before.
     let liveByKey = Object.create(null);
+    let matchDetail = null;          // { goals, feed, lineups } for the selection
     const liveKey = (h, a) => `${h}|${a}`;
     const liveFor = (h, a) => liveByKey[liveKey(h, a)] || null;
 
@@ -910,18 +954,135 @@
       evs.forEach(e => { next[liveKey(e.home, e.away)] = e; });
       liveByKey = next;
 
-      // Pull goal timings for the selected match so the win-prob trace is the
-      // real path. Cheap: one extra request, only while a match is in play.
+      // Pull full detail for the selected match: goal timings for the real
+      // win-prob path, plus the feed and team sheet. One request covers all
+      // three. Worth making once a match is under way or finished today —
+      // a fixture days out has no lineup and nothing to report.
       const sel = liveFor(homeSelect.value, awaySelect.value);
-      goalTimeline = (sel && sel.state === 'in')
-        ? await Live.timeline('epl', sel.id, sel.rawHome)
-        : [];
+      if (sel && (sel.state === 'in' || sel.state === 'post')) {
+        const d = await Live.detail('epl', sel.id, sel.rawHome);
+        goalTimeline = sel.state === 'in' ? d.goals : [];
+        matchDetail = d;
+      } else {
+        goalTimeline = [];
+        matchDetail = null;
+      }
 
       const anyLive = evs.some(e => e.state === 'in');
       const badge = document.querySelector('.term-tag.live');
       if (badge) badge.textContent = anyLive ? 'LIVE NOW' : 'Live';
       renderWeekList();
       render();
+    }
+
+    /* ── Team sheet ────────────────────────────────────────────────────────
+     *
+     * `Players.delta` compares the XI that actually started against that
+     * club's recent-norm XI. That difference is the only part of the player
+     * data Dixon-Coles does not already know: it infers team strength from
+     * results, so a squad rating tells it nothing new, but "three first-choice
+     * players are missing today" does.
+     *
+     * Measured at +0.0003 log-loss over 340 matches — real in sign, negligible
+     * in size. It is shown because it is useful to see, and labelled honestly.
+     */
+    function lineupDeltas(home, away) {
+      const lu = matchDetail && matchDetail.lineups;
+      if (!lu || typeof Players === 'undefined') return null;
+      const xh = Players.xi(home, lu.home), xa = Players.xi(away, lu.away);
+      if (!xh || !xa) return null;
+      return {
+        xh, xa,
+        dh: Players.delta(home, lu.home),
+        da: Players.delta(away, lu.away),
+        formation: lu.formation || {}
+      };
+    }
+
+    function sheetCol(team, info, delta, formation) {
+      const rows = info.rows.map(r => {
+        const ovr = r.ovr == null ? '—' : r.ovr;
+        const cls = r.ovr == null ? 'ts-unrated'
+                  : r.ovr >= 84 ? 'ts-elite' : r.ovr >= 79 ? 'ts-good' : '';
+        return `<div class="ts-row ${cls}"><span class="ts-name">${esc(r.name)}</span>` +
+               `<span class="ts-ovr">${ovr}</span></div>`;
+      }).join('');
+      const d = delta == null ? null : delta;
+      const dTxt = d == null ? ''
+        : `<span class="ts-delta ${d < -0.15 ? 'neg' : d > 0.15 ? 'pos' : ''}">` +
+          `${d >= 0 ? '+' : ''}${d.toFixed(2)} vs norm</span>`;
+      return `<div class="ts-head"><span class="ts-team">${esc(team)}</span>` +
+             `<span class="ts-form">${esc(formation || '')}</span></div>` +
+             `<div class="ts-meta">XI ${info.strength.toFixed(1)} ${dTxt}</div>` +
+             rows;
+    }
+
+    function renderSheet(home, away, sheet) {
+      const sec = document.getElementById('sheet-section');
+      if (!sec) return;
+      if (!sheet) { sec.style.display = 'none'; return; }
+      sec.style.display = '';
+      document.getElementById('sheet-home').innerHTML =
+        sheetCol(home, sheet.xh, sheet.dh, sheet.formation.home);
+      document.getElementById('sheet-away').innerHTML =
+        sheetCol(away, sheet.xa, sheet.da, sheet.formation.away);
+
+      const snap = Players.snapshot ? Players.snapshot() : null;
+      document.getElementById('sheet-note').textContent =
+        'EA FC 26 ratings' + (snap ? ` · snapshot ${snap}` : '');
+
+      const un = sheet.xh.unrated + sheet.xa.unrated;
+      document.getElementById('sheet-foot').innerHTML =
+        'Ratings shift the pre-match price only, and only slightly — measured at ' +
+        '+0.0003 log-loss across 340 matches. Dixon-Coles already reads team ' +
+        'strength from results; the one thing it cannot see is a side fielding a ' +
+        'weaker XI than usual, which is what “vs norm” measures.' +
+        (un ? ` ${un} starter${un > 1 ? 's' : ''} unrated (joined after the snapshot); ` +
+              'club average substituted.' : '');
+    }
+
+    /* ── Match feed ────────────────────────────────────────────────────── */
+    const FEED_ICON = {
+      goal: '⚽', 'pen-goal': '⚽', 'own-goal': '⚽', yellow: '🟨', red: '🟥',
+      sub: '⇄', injury: '✚', 'pen-miss': '✖', period: '•', note: '·'
+    };
+    const FEED_LABEL = {
+      goal: 'Goal', 'pen-goal': 'Penalty', 'own-goal': 'Own goal',
+      yellow: 'Booking', red: 'Red card', sub: 'Substitution',
+      injury: 'Injury sub', 'pen-miss': 'Penalty', period: '', note: ''
+    };
+
+    function renderFeed(home, away) {
+      const sec = document.getElementById('feed-section');
+      if (!sec) return;
+      const feed = (matchDetail && matchDetail.feed || []).filter(e => (e.text || '').trim());
+      if (!feed.length) { sec.style.display = 'none'; return; }
+      sec.style.display = '';
+
+      // newest first — the interesting end of a match feed is the recent end.
+      // ESPN emits some structural events with no text; they render as a bare
+      // bullet, so drop them.
+      const items = feed.filter(e => (e.text || '').trim()).slice().reverse().map(e => {
+        const min = e.min == null ? '' : e.min + "'";
+        const side = e.side === 'home' ? 'fe-home' : e.side === 'away' ? 'fe-away' : '';
+        const label = FEED_LABEL[e.kind] || '';
+        return `<div class="fe-row ${side} fe-${e.kind}">` +
+               `<span class="fe-min">${min}</span>` +
+               `<span class="fe-icon">${FEED_ICON[e.kind] || '·'}</span>` +
+               `<span class="fe-body">` +
+                 (label ? `<span class="fe-kind">${label}</span>` : '') +
+                 `<span class="fe-text">${esc(e.text)}</span>` +
+               `</span></div>`;
+      }).join('');
+      document.getElementById('feed-list').innerHTML = items;
+
+      const n = feed.filter(e => e.kind === 'injury').length;
+      document.getElementById('feed-note').textContent =
+        `${esc(home)} v ${esc(away)}` + (n ? ` · ${n} injury sub${n > 1 ? 's' : ''}` : '');
+    }
+
+    function renderSheetSafe() {
+      try { render(); } catch (e) { /* ratings are decorative; never break the page */ }
     }
 
     function renderWeekList() {
@@ -1066,6 +1227,13 @@
     render();
     renderWeekList();
     // Live scores load after first paint and refresh while the tab is visible.
+    // Player ratings are optional: if the file fails to load, `Players.xi`
+    // returns null, the team sheet stays hidden and everything else is
+    // unaffected. Re-render once they arrive so the sheet fills in.
+    if (typeof Players !== 'undefined') {
+      Players.ready().then(() => { renderSheetSafe(); });
+    }
+
     refreshLive();
     setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive(); });
