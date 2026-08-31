@@ -198,17 +198,48 @@ def main():
         verdict = 'worth adding' if gh > 0.0015 else ('marginal' if gh > 0 else 'NO — hurts holdout')
         print(f'{label:<32}{b:>7.2f}{gt:>12.4f}{gh:>14.4f}  {verdict}')
 
-    # combine everything that helped on the holdout
-    keep = [(f, b) for f, b, gh in results if gh > 0.0015]
-    if keep:
-        feats = tuple(f for f, _ in keep)
-        betas = tuple(b for _, b in keep)
-        print(f'\nCombined ({", ".join(feats)}):')
-        print(f'  holdout logloss {logloss(hold, feats, betas):.4f} '
-              f'(baseline {base_ho:.4f})   acc {accuracy(hold, feats, betas)*100:.1f}% '
-              f'(baseline {accuracy(hold)*100:.1f}%)')
-    else:
-        print('\nNothing cleared the bar on the holdout.')
+    # ── Joint fit ─────────────────────────────────────────────────────────
+    # Fitting features one at a time understates a set that complements each
+    # other, so fit them together by coordinate descent before judging.
+    #
+    # Only features KNOWN BEFORE KICKOFF are eligible. temp/wind are recorded
+    # after the game (0 of 272 upcoming games carry them), so they can never
+    # feed a real prediction no matter how they score here.
+    USABLE = ('qb', 'rest', 'div', 'indoor')
+    print('\n' + '=' * 84)
+    print('JOINT FIT — features knowable before kickoff (temp/wind excluded: '
+          'recorded post-game)')
+    print('=' * 84)
+
+    betas = {f: 0.0 for f in USABLE}
+    for _ in range(6):
+        for f in USABLE:
+            best_b, best = betas[f], logloss(train, tuple(betas), tuple(betas.values()))
+            b = -1.5
+            while b <= 1.5001:
+                trial = dict(betas); trial[f] = b
+                v = logloss(train, tuple(trial), tuple(trial.values()))
+                if v < best:
+                    best, best_b = v, b
+                b += 0.02
+            betas[f] = best_b
+
+    feats = tuple(USABLE)
+    bs = tuple(betas[f] for f in USABLE)
+    print('  fitted betas: ' + '  '.join(f'{f}={betas[f]:+.2f}' for f in USABLE))
+    print(f'\n  {"":<26}{"logloss":>10}{"accuracy":>11}')
+    print(f'  {"Elo baseline":<26}{base_ho:>10.4f}{accuracy(hold)*100:>10.1f}%')
+    print(f'  {"+ QB only":<26}{logloss(hold, ("qb",), (betas["qb"],)):>10.4f}"'
+          f'{accuracy(hold, ("qb",), (betas["qb"],))*100:>9.1f}%'.replace('"', ''))
+    print(f'  {"+ all four (joint)":<26}{logloss(hold, feats, bs):>10.4f}'
+          f'{accuracy(hold, feats, bs)*100:>10.1f}%')
+
+    gain_all = base_ho - logloss(hold, feats, bs)
+    gain_qb = base_ho - logloss(hold, ('qb',), (betas['qb'],))
+    print(f'\n  holdout gain — all four: {gain_all:+.4f}   QB alone: {gain_qb:+.4f}')
+    print('  => ' + ('the extra three earn their place'
+                     if gain_all > gain_qb + 0.0002 else
+                     'the extra three add nothing beyond QB'))
 
 
 if __name__ == '__main__':

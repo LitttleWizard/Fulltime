@@ -658,14 +658,34 @@
       homeSelect.appendChild(new Option(t, t));
       awaySelect.appendChild(new Option(t, t));
     });
-    homeSelect.value = teams[0];
-    awaySelect.value = teams[1] || teams[0];
-
     fixtureSelect.appendChild(new Option('— manual selection —', ''));
     upcomingFixtures.slice(0, 40).forEach((m, i) => {
       const label = `${m.date} — ${m.team1} vs ${m.team2}`;
       fixtureSelect.appendChild(new Option(label, i));
     });
+
+    // Open on the next fixture that hasn't kicked off yet. The unplayed list can
+    // still contain past dates when the data source lags behind real results, so
+    // prefer the first one dated today or later.
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const nextIdx = (() => {
+      const i = upcomingFixtures.findIndex(m => (m.date || '') >= todayISO);
+      return i === -1 ? (upcomingFixtures.length ? 0 : -1) : i;
+    })();
+
+    function selectDefault() {
+      if (nextIdx >= 0) {
+        const m = upcomingFixtures[nextIdx];
+        homeSelect.value = m.team1;
+        awaySelect.value = m.team2;
+        fixtureSelect.value = nextIdx < 40 ? String(nextIdx) : '';
+      } else {
+        homeSelect.value = teams[0];
+        awaySelect.value = teams[1] || teams[0];
+        fixtureSelect.value = '';
+      }
+    }
+    selectDefault();
 
     fixtureSelect.addEventListener('change', () => {
       if (fixtureSelect.value === '') return;
@@ -703,9 +723,7 @@
       render();
     });
     document.getElementById('tb-reset').addEventListener('click', () => {
-      homeSelect.value = teams[0];
-      awaySelect.value = teams[1] || teams[0];
-      fixtureSelect.value = '';
+      selectDefault();
       render();
     });
 

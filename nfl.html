@@ -167,7 +167,7 @@
     // host: the github.com/…/raw/… form 302-redirects and the redirect hop has
     // no CORS header, so the browser refuses it even though curl follows it fine.
     const GAMES_URL = 'https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv';
-    const CACHE_KEY = 'nfl-predictor-cache-v1';
+    const CACHE_KEY = 'nfl-predictor-cache-v2';  // v2 adds rest days to the cached rows
     const CACHE_TTL = 6 * 60 * 60 * 1000;
     const FIRST_SEASON = 1999;
 
@@ -248,7 +248,10 @@
           home: g.home_team, away: g.away_team,
           hs: played ? parseInt(g.home_score, 10) : null,
           as: played ? parseInt(g.away_score, 10) : null,
-          played, div: g.div_game === '1'
+          played,
+          div: g.div_game === '1',
+          homeRest: g.home_rest === '' ? null : parseFloat(g.home_rest),
+          awayRest: g.away_rest === '' ? null : parseFloat(g.away_rest)
         });
       }
       games.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
@@ -325,31 +328,40 @@
 
     function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-    // Fitted by nfl_features.py: of every extra signal in the nflverse file
-    // (rest days, divisional, roof, wind, temperature) a QB change was the only
-    // one that improved the held-out score — 0.6334 -> 0.6304 log-loss. The
-    // others were noise or actively hurt, so they are deliberately not used.
-    const QB_BETA = 0.52;
+    // Adjustments on top of Elo, jointly fitted by nfl_features.py on 2001-2022
+    // and scored on the 2023+ holdout: 0.6334 -> 0.6293 log-loss, 64.3 -> 64.6%.
+    //
+    // Only signals knowable BEFORE kickoff are usable. Temperature and wind are
+    // recorded after the game (absent on all 272 upcoming fixtures), so they
+    // can't feed a prediction whatever they score in backtest. Roof/indoor was
+    // fitted to ~0 jointly and contributes nothing, so it's left out.
+    const QB_BETA = 0.52;     // team starting a backup / new QB
+    const REST_BETA = 0.18;   // rest-day advantage, per 7 days
+    const DIV_BETA = -0.05;   // divisional games run slightly closer
 
-    function predict(elo, home, away, qb) {
+    function predict(elo, home, away, qb, game) {
       const Rh = elo.ratings[home] ?? DEFAULT_RATING;
       const Ra = elo.ratings[away] ?? DEFAULT_RATING;
       const dr = Rh - Ra + HOME_ADV;
-      let homeWin = 1 / (1 + Math.pow(10, -dr / 400));
+      let z = Math.log(10) * dr / 400;   // Elo gap as log-odds
+      const adj = {};
 
-      // Backup QB adjustment, applied in log-odds space. Away disruption helps
-      // the home side and vice versa.
+      // Backup QB: away disruption helps the home side and vice versa.
       const qbNet = ((qb && qb.away) ? 1 : 0) - ((qb && qb.home) ? 1 : 0);
-      if (qbNet !== 0) {
-        const z = Math.log(homeWin / (1 - homeWin)) + QB_BETA * qbNet;
-        homeWin = 1 / (1 + Math.exp(-z));
-      }
+      if (qbNet !== 0) { adj.qb = QB_BETA * qbNet; z += adj.qb; }
 
+      if (game && game.homeRest != null && game.awayRest != null) {
+        const rest = clamp(game.homeRest - game.awayRest, -7, 7) / 7;
+        if (rest) { adj.rest = REST_BETA * rest; z += adj.rest; }
+      }
+      if (game && game.div) { adj.div = DIV_BETA; z += adj.div; }
+
+      const homeWin = 1 / (1 + Math.exp(-z));
       // Elo point gap -> point spread. ~25 Elo per point is the standard
       // conversion used for NFL ratings.
-      const spread = (Math.log(homeWin / (1 - homeWin)) * 400 / Math.LN10) / 25;
+      const spread = (z * 400 / Math.LN10) / 25;
       return {
-        homeWin, awayWin: 1 - homeWin, Rh, Ra, spread, qbNet,
+        homeWin, awayWin: 1 - homeWin, Rh, Ra, spread, qbNet, adj,
         sHome: recentStats(elo.history, home, 8),
         sAway: recentStats(elo.history, away, 8)
       };
@@ -528,7 +540,10 @@
 
     function render() {
       const home = homeSelect.value, away = awaySelect.value;
-      const p = predict(elo, home, away, qbState);
+      // If this matchup is a scheduled fixture, use its real rest days and
+      // divisional flag; a hand-picked pairing has no such context.
+      const ctx = upcoming.find(g => g.home === home && g.away === away) || null;
+      const p = predict(elo, home, away, qbState, ctx);
       const hPct = Math.round(p.homeWin * 100), aPct = 100 - hPct;
 
       document.getElementById('label-home').textContent = teamName(home);
@@ -599,7 +614,7 @@
       }
       const todayStr = new Date().toISOString().slice(0, 10);
       listEl.innerHTML = list.map((g, i) => {
-        const p = predict(elo, g.home, g.away);
+        const p = predict(elo, g.home, g.away, null, g);
         const hPct = Math.round(p.homeWin * 100), aPct = 100 - hPct;
         const favHome = p.homeWin >= 0.5;
         return `
@@ -643,18 +658,22 @@
       ties are about 0.2% of games, so a three-outcome goals model has nothing to model. Elo on
       margin of victory is the right shape for this sport.
       <br><br>
-      <b>What else was tested and rejected.</b> The nflverse file also carries rest days, divisional
-      flags, roof type, wind and temperature. Each was fitted as a logistic adjustment on the
-      training era and then checked on the holdout (<code>nfl_features.py</code>): rest, divisional
-      and cold were marginal at best, and indoor/wind actually made the held-out score worse. They
-      are deliberately not used. The one signal that survived was a <b>quarterback change</b>
-      (β=${QB_BETA}), worth 0.6334 → 0.6304 log-loss — real, and it generalised cleanly.
+      <b>Adjustments on top of the rating.</b> Three further signals are applied in log-odds space,
+      fitted jointly on 2001–2022 and scored on the 2023+ holdout (<code>nfl_features.py</code>):
+      a <b>quarterback change</b> (β=${QB_BETA}), <b>rest-day advantage</b> (β=${REST_BETA} per
+      7 days) and <b>divisional games</b> running slightly closer (β=${DIV_BETA}). Together they
+      move the held-out score from 0.6334 to 0.6293 log-loss and 64.3% to 64.6% — modest, but
+      measured rather than assumed, and better than the QB signal alone (0.6304).
       <br><br>
-      Expected starters can't be fetched here (nflverse depth charts are release assets and serve
-      no CORS header), so that adjustment is exposed as the two <b>QB out</b> toggles in the
-      toolbar. It's the one thing you reliably know that the model can't: flip it when a team is
-      starting a backup. Note it improves the <i>probabilities</i> more than the picks — accuracy
-      only moves 64.3% → 64.4%.
+      <b>What's deliberately excluded.</b> Temperature and wind look tempting but are recorded
+      <i>after</i> a game — every one of the season's upcoming fixtures has those fields empty, so
+      they can't inform a prediction no matter how they backtest. Roof type fitted to essentially
+      zero once the other signals were in, so it adds nothing.
+      <br><br>
+      Expected starters also can't be fetched here (nflverse depth charts are release assets and
+      serve no CORS header), so the QB adjustment is exposed as the two <b>QB out</b> toggles in
+      the toolbar — the one thing you reliably know that the model can't. Rest days and divisional
+      status come from the schedule automatically.
       <br><br>
       <b>How accurate is it?</b> Constants (K=${K}, home advantage, offseason regression) were grid-searched
       on 2001–2022 and then scored on 854 games from 2023 onward that the tuning never saw: it calls
