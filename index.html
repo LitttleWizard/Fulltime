@@ -17,6 +17,7 @@
       --surface: #131519;
       --border-strong: rgba(255,255,255,0.18);
       --text:    #f0f0f0;
+      --muted:   #7a7f88;
       --brand:   #28cc95;
       --brand-dim: rgba(40,204,149,0.12);
       --brand-border: rgba(40,204,149,0.45);
@@ -28,9 +29,49 @@
       font-family: 'Inter', sans-serif;
       min-height: 100vh;
       display: flex; align-items: center; justify-content: center;
+      position: relative; overflow: hidden;
     }
 
-    .center { text-align: center; padding: 24px; }
+    /* ── Real upcoming fixtures drifting behind the wordmark ──
+       Faded hard toward the centre so the name stays clean. Purely decorative:
+       if the data doesn't load the hero looks exactly as it does without it. */
+    .fixtures-bg {
+      position: absolute; inset: 0; z-index: 0; pointer-events: none;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0 6vw;
+      padding: 0 4vw; opacity: 0; transition: opacity 1.2s ease;
+      mask-image: radial-gradient(ellipse 46% 42% at 50% 50%, transparent 30%, #000 78%);
+      -webkit-mask-image: radial-gradient(ellipse 46% 42% at 50% 50%, transparent 30%, #000 78%);
+    }
+    .fixtures-bg.ready { opacity: 1; }
+    .bg-col { overflow: hidden; position: relative; }
+    /* EPL drifts up, NFL drifts down. The shift is exactly one copy of the list
+       (--shift, measured at runtime) and the list is repeated until it overflows
+       the viewport — otherwise the loop exposes blank space at the start. */
+    .bg-track { display: flex; flex-direction: column; gap: 18px; }
+    #bg-epl { animation: driftUp 60s linear infinite; }
+    #bg-nfl { animation: driftDown 74s linear infinite; }
+    @keyframes driftUp {
+      from { transform: translateY(0); }
+      to   { transform: translateY(calc(-1 * var(--shift, 50%))); }
+    }
+    @keyframes driftDown {
+      from { transform: translateY(calc(-1 * var(--shift, 50%))); }
+      to   { transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) { .bg-track { animation: none; } }
+
+    .bg-fx {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: clamp(10px, 1vw, 12px);
+      color: var(--muted); opacity: 0.5;
+      display: flex; align-items: baseline; gap: 10px; white-space: nowrap;
+    }
+    .bg-fx .lg { color: var(--brand); opacity: .8; width: 26px; flex-shrink: 0; }
+    .bg-fx .tm { color: #cfd6de; }
+    .bg-fx .dt { margin-left: auto; opacity: .7; }
+    @media (max-width: 720px) { .fixtures-bg { grid-template-columns: 1fr; } }
+
+    .center { text-align: center; padding: 24px; position: relative; z-index: 1; }
 
     h1 {
       font-size: clamp(58px, 15vw, 180px);
@@ -60,6 +101,11 @@
 </head>
 <body>
 
+  <div class="fixtures-bg" id="fixtures-bg" aria-hidden="true">
+    <div class="bg-col"><div class="bg-track" id="bg-epl"></div></div>
+    <div class="bg-col"><div class="bg-track" id="bg-nfl"></div></div>
+  </div>
+
   <main class="center">
     <h1>Fulltime</h1>
     <div class="buttons">
@@ -67,6 +113,93 @@
       <a class="btn" href="nfl.html">NFL</a>
     </div>
   </main>
+
+  <script>
+  // Decorative only, and deliberately non-blocking: the hero renders instantly
+  // and these fade in behind it if and when the data arrives.
+  (async function () {
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+      c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const short = n => String(n).replace(/\s+(FC|AFC)$/i, '');
+    const todayISO = new Date().toISOString().slice(0, 10);
+
+    const row = (lg, a, b, date) =>
+      `<div class="bg-fx"><span class="lg">${lg}</span>` +
+      `<span class="tm">${esc(a)}</span><span>v</span><span class="tm">${esc(b)}</span>` +
+      `<span class="dt">${esc((date || '').slice(5))}</span></div>`;
+
+    async function epl() {
+      try {
+        const r = await fetch('https://raw.githubusercontent.com/openfootball/football.json/master/2026-27/en.1.json');
+        if (!r.ok) return [];
+        const d = await r.json();
+        return (d.matches || [])
+          .filter(m => !m.score && (m.date || '') >= todayISO)
+          .slice(0, 16)
+          .map(m => row('EPL', short(m.team1), short(m.team2), m.date));
+      } catch (e) { return []; }
+    }
+
+    async function nfl() {
+      // reuse the NFL tab's cache when it's warm; skip the 2 MB download otherwise
+      try {
+        const c = JSON.parse(localStorage.getItem('nfl-predictor-cache-v2') || 'null');
+        if (c && c.games) {
+          return c.games
+            .filter(g => !g.played && (g.date || '') >= todayISO)
+            .slice(0, 16)
+            .map(g => row('NFL', g.away, g.home, g.date));
+        }
+      } catch (e) { /* fall through */ }
+      try {
+        const r = await fetch('https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv');
+        if (!r.ok) return [];
+        const lines = (await r.text()).split('\n');
+        const head = lines[0].split(',');
+        const ix = n => head.indexOf(n);
+        const iD = ix('gameday'), iH = ix('home_team'), iA = ix('away_team'), iS = ix('home_score');
+        const out = [];
+        for (let i = 1; i < lines.length && out.length < 16; i++) {
+          const c = lines[i].split(',');
+          if (c.length < head.length) continue;
+          if (c[iS]) continue;                       // already played
+          if ((c[iD] || '') < todayISO) continue;
+          out.push(row('NFL', c[iA], c[iH], c[iD]));
+        }
+        return out;
+      } catch (e) { return []; }
+    }
+
+    // Repeat the list until it comfortably overflows the viewport, then shift by
+    // exactly one copy — a fixed -50% leaves a gap whenever one copy is shorter
+    // than the screen, which is what caused blank space on load.
+    function fill(el, rows) {
+      if (!rows.length) { el.innerHTML = ''; return; }
+      const one = rows.join('');
+      el.innerHTML = one;
+      const copyH = el.scrollHeight || 1;
+      const copies = Math.max(2, Math.ceil((window.innerHeight * 2) / copyH) + 1);
+      el.innerHTML = new Array(copies).fill(one).join('');
+      el.style.setProperty('--shift', copyH + 'px');
+    }
+
+    const [e, n] = await Promise.all([epl(), nfl()]);
+    if (!e.length && !n.length) return;
+    fill(document.getElementById('bg-epl'), e);
+    fill(document.getElementById('bg-nfl'), n);
+    document.getElementById('fixtures-bg').classList.add('ready');
+
+    // keep the loop gapless if the window is resized
+    let t = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        fill(document.getElementById('bg-epl'), e);
+        fill(document.getElementById('bg-nfl'), n);
+      }, 200);
+    });
+  })();
+  </script>
 
 </body>
 </html>

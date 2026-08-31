@@ -883,3 +883,23 @@
       .symbol-teams { font-size: 17px; }
       .symbol-price { font-size: 26px; }
     }
+
+    /* ── Projected score (offence/defence ratings) ── */
+    .projected { margin-top: 16px; }
+    .proj-head {
+      font-size: 11px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: 0.06em; margin-bottom: 8px;
+    }
+    .proj-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    .proj-team { font-size: 12.5px; font-weight: 600; }
+    .proj-team.home { color: var(--series-home); }
+    .proj-team.away { color: var(--series-away); }
+    .proj-pts {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 20px; font-weight: 700; color: var(--text);
+    }
+    .proj-sep { color: var(--muted); }
+    .proj-total {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      color: var(--muted); margin-left: auto;
+    }

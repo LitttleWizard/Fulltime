@@ -112,6 +112,7 @@
                 <div class="prob-pct" id="pct-home">—</div>
               </div>
               <div class="verdict" id="verdict"></div>
+              <div class="projected" id="projected"></div>
 
               <div class="stat-grid">
                 <div class="stat-col" id="stat-away"></div>
@@ -322,6 +323,44 @@
       el.innerHTML = col(away) + col(home);
     }
 
+    // ── Offence / defence ratings ──────────────────────────────────────────
+    // Fitted by offdef_test.py. These do NOT set the win probability — tested
+    // head-to-head, a single Elo rating predicts winners slightly better
+    // (0.6334 vs 0.6347 holdout log-loss). What they add is game *shape*: Elo
+    // can't tell a 31-28 matchup from a 13-10 one, and these can. Used only for
+    // the projected score.
+    const OD_LR = 0.10, OD_HFA = 2.4, OD_REGRESS = 0.55, OD_BASE = 22.0;
+
+    function computeOffDef(games) {
+      const off = {}, dfn = {};
+      let prevSeason = null;
+      for (const g of games) {
+        if (!g.played) continue;
+        const h = g.home, a = g.away;
+        for (const t of [h, a]) { if (!(t in off)) { off[t] = 0; dfn[t] = 0; } }
+        if (prevSeason !== null && g.season !== prevSeason) {
+          for (const t in off) { off[t] *= OD_REGRESS; dfn[t] *= OD_REGRESS; }
+        }
+        prevSeason = g.season;
+
+        const eh = OD_BASE + off[h] + dfn[a] + OD_HFA;
+        const ea = OD_BASE + off[a] + dfn[h];
+        const rh = g.hs - eh, ra = g.as - ea;
+        off[h] += OD_LR * rh; dfn[a] += OD_LR * rh;
+        off[a] += OD_LR * ra; dfn[h] += OD_LR * ra;
+      }
+      return { off, dfn };
+    }
+
+    function projectScore(home, away) {
+      if (!offDef) return null;
+      const o = offDef.off, d = offDef.dfn;
+      if (!(home in o) || !(away in o)) return null;
+      const eh = OD_BASE + o[home] + d[away] + OD_HFA;
+      const ea = OD_BASE + o[away] + d[home];
+      return { home: eh, away: ea, total: eh + ea };
+    }
+
     // ── Elo ────────────────────────────────────────────────────────────────
     // NFL scoring isn't Poisson (points come in 7s and 3s), and ties are ~0.2%
     // of games, so the EPL tab's Dixon-Coles goals model has nothing to model
@@ -481,11 +520,12 @@
     }
 
     // ── Main ───────────────────────────────────────────────────────────────
-    let games, elo, teams, upcoming, trades = [];
+    let games, elo, offDef, teams, upcoming, trades = [];
     try {
       [games, trades] = await Promise.all([loadGames(), loadTrades()]);
       loadingStatus.textContent = 'Building Elo ratings…';
       elo = computeElo(games);
+      offDef = computeOffDef(games);
       const latestSeason = Math.max(...games.map(g => g.season));
       document.getElementById('season-tag').textContent = `${latestSeason} NFL Season`;
       const seasonGames = games.filter(g => g.season === latestSeason);
@@ -635,6 +675,21 @@
           <span class="pill-stat">FAVORED · ${favPct}%</span>
         </div>
         <div class="verdict-sub">Projected spread ${fav} −${spread.toFixed(1)} · Elo ${Math.round(p.Rh)} vs ${Math.round(p.Ra)}</div>`;
+
+      const proj = projectScore(home, away);
+      const projEl = document.getElementById('projected');
+      if (projEl) {
+        projEl.innerHTML = proj ? `
+          <div class="proj-head">Projected score</div>
+          <div class="proj-row">
+            <span class="proj-team away">${away}</span>
+            <span class="proj-pts">${proj.away.toFixed(0)}</span>
+            <span class="proj-sep">–</span>
+            <span class="proj-pts">${proj.home.toFixed(0)}</span>
+            <span class="proj-team home">${home}</span>
+            <span class="proj-total">total ${proj.total.toFixed(0)}</span>
+          </div>` : '';
+      }
 
       document.getElementById('quote-team').textContent = teamName(fav);
       document.getElementById('quote-price').textContent = favPct + '%';
