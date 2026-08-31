@@ -785,9 +785,9 @@
       const m = box.getBoundingClientRect();
       const W = Math.max(340, Math.round(m.width) || 520);
       const H = Math.max(200, Math.round(m.height) || 280);
-      const PAD_L = 8, PAD_R = 96, PAD_T = 16, PAD_B = 26;
-      const TAG_X = W - PAD_R + 8;      // team tag + big value
-      const AXIS_X = W - 4;             // scale, hard right
+      const PAD_L = 40, PAD_R = 78, PAD_T = 16, PAD_B = 26;
+      const AXIS_X = PAD_L - 7;         // scale on the left, like the Elo chart
+      const TAG_X = W - PAD_R + 8;      // team tag + big value in the right gutter
       const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
       const endMin = Math.max(nowMin, 1);
       const x = min => PAD_L + (min / endMin) * plotW;
@@ -803,12 +803,26 @@
         }
         return [h, a];
       };
-      const pts = [];
-      for (let min = 0; min <= endMin; min += 0.5) {
+      // Sample on a readable grid so each point can carry a dot, the way the
+      // Elo chart does. Goals get an extra pair of samples either side of the
+      // minute so the step stays sharp instead of being smoothed over.
+      const sampleStep = endMin <= 20 ? 2 : endMin <= 50 ? 5 : 10;
+      const marks = [];
+      for (let min = 0; min <= endMin; min += sampleStep) marks.push(min);
+      if (marks[marks.length - 1] !== endMin) marks.push(endMin);
+
+      const sampleMins = marks.slice();
+      goalTimeline.forEach(g => {
+        if (g.min <= endMin) { sampleMins.push(Math.max(0, g.min - 0.01), g.min); }
+      });
+      sampleMins.sort((a2, b2) => a2 - b2);
+
+      const markSet = new Set(marks);
+      const pts = sampleMins.map(min => {
         const [hs, as] = scoreAt(min);
         const w = Live.winProb(p.lh, p.la, hs, as, 90 - min);
-        pts.push({ min, h: w.home, d: w.draw, a: w.away });
-      }
+        return { min, h: w.home, d: w.draw, a: w.away, dot: markSet.has(min) };
+      });
       const line = k => pts.map((q, i) =>
         `${i ? 'L' : 'M'} ${x(q.min).toFixed(1)} ${y(q[k]).toFixed(1)}`).join(' ');
 
@@ -838,6 +852,11 @@
         { k: 'a', c: 'var(--series-away)', label: abbr(away) }
       ];
       const lines = series.map(s2 => `<path class="wp-line" d="${line(s2.k)}" stroke="${s2.c}"/>`).join('');
+      const dots = series.map(s2 =>
+        pts.filter(q => q.dot).map(q =>
+          `<circle class="wp-point" r="3" cx="${x(q.min).toFixed(1)}" cy="${y(q[s2.k]).toFixed(1)}" fill="${s2.c}"/>`
+        ).join('')
+      ).join('');
 
       // big value block on the right, Kalshi-style, nudged apart if they collide
       const last = pts[pts.length - 1];
@@ -854,7 +873,7 @@
       ).join('');
 
       box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-          ${grid.join('')}${goalMarks}${xTicks.join('')}${lines}${ends}
+          ${grid.join('')}${goalMarks}${xTicks.join('')}${lines}${dots}${ends}
         </svg>`;
 
       const gl = goalTimeline.length;

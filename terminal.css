@@ -91,7 +91,8 @@
     :root[data-theme="light"] .trend-gap { opacity: 0.10; }
     :root[data-theme="light"] .wp-grid { stroke: #cbd5e1; }
     :root[data-theme="light"] .wp-goal { stroke: #94a3b8; }
-    :root[data-theme="light"] .wp-dot { stroke: var(--surface); }
+    :root[data-theme="light"] .wp-dot,
+    :root[data-theme="light"] .wp-point { stroke: var(--surface); }
 
     /* ── Roster moves (context panel) ── */
     .ctx-note {
@@ -439,6 +440,7 @@
     .wp-axis-x { font-family:'JetBrains Mono',monospace; font-size:10px; fill: var(--muted); }
     .wp-line { fill:none; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
     .wp-dot { stroke: var(--bg); stroke-width: 2; }
+    .wp-point { stroke: var(--bg); stroke-width: 1.6; }
     .wp-goal { stroke: rgba(255,255,255,0.16); stroke-width:1; stroke-dasharray:2,3; }
     .wp-tag { font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:700; letter-spacing:.05em; }
     .wp-val { font-size:19px; font-weight:800; letter-spacing:-0.02em; }
