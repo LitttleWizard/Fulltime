@@ -157,6 +157,14 @@
             </div>
           </div>
 
+          <div class="center-section">
+            <div class="metric-compare">
+              <div class="card-title">Form Comparison — Last 8 Matches</div>
+              <div class="chart-legend" id="metric-legend"></div>
+              <div id="metric-bars"></div>
+            </div>
+          </div>
+
           <!-- Team sheet + match feed. Hidden until ESPN publishes a lineup,
                which it only does near kickoff — a fixture days away has none. -->
           <div class="center-section" id="sheet-section" style="display:none;">
@@ -177,14 +185,6 @@
               <div class="sheet-note" id="feed-note"></div>
             </div>
             <div class="feed-list" id="feed-list"></div>
-          </div>
-
-          <div class="center-section">
-            <div class="metric-compare">
-              <div class="card-title">Form Comparison — Last 8 Matches</div>
-              <div class="chart-legend" id="metric-legend"></div>
-              <div id="metric-bars"></div>
-            </div>
           </div>
 
           <div class="center-section">
@@ -647,15 +647,25 @@
     }
     selectDefault();
 
+    // Changing the match invalidates the cached team sheet and feed, which
+    // belong to the previous fixture. Drop them before repainting, then refetch
+    // — otherwise the wrong side's lineup shows until the next 60s poll.
+    function selectionChanged() {
+      matchDetail = null;
+      goalTimeline = [];
+      render();
+      refreshDetail().then(render);
+    }
+
     fixtureSelect.addEventListener('change', () => {
       if (fixtureSelect.value === '') return;
       const m = upcomingFixtures[Number(fixtureSelect.value)];
       homeSelect.value = m.team1;
       awaySelect.value = m.team2;
-      render();
+      selectionChanged();
     });
-    homeSelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
-    awaySelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
+    homeSelect.addEventListener('change', () => { fixtureSelect.value = ''; selectionChanged(); });
+    awaySelect.addEventListener('change', () => { fixtureSelect.value = ''; selectionChanged(); });
 
     // The chart is drawn at its box's pixel size, so redraw whenever that box
     // changes — initial layout settling, window resize, panel reflow.
@@ -950,25 +960,36 @@
     const liveKey = (h, a) => `${h}|${a}`;
     const liveFor = (h, a) => liveByKey[liveKey(h, a)] || null;
 
+    /**
+     * Full detail for the selected match: goal timings for the real win-prob
+     * path, plus the feed and team sheet. One request covers all three, and it
+     * is only worth making once a match is under way or finished today — a
+     * fixture days out has no lineup and nothing to report.
+     */
+    async function refreshDetail() {
+      const sel = liveFor(homeSelect.value, awaySelect.value);
+      if (!sel || (sel.state !== 'in' && sel.state !== 'post')) {
+        goalTimeline = [];
+        matchDetail = null;
+        return;
+      }
+      const want = sel.id;
+      const d = await Live.detail('epl', sel.id, sel.rawHome);
+      // The selection can move while the request is in flight; a late response
+      // for a match the user has navigated away from must not overwrite it.
+      const now = liveFor(homeSelect.value, awaySelect.value);
+      if (!now || now.id !== want) return;
+      goalTimeline = sel.state === 'in' ? d.goals : [];
+      matchDetail = d;
+    }
+
     async function refreshLive() {
       const evs = await Live.fetch('epl');
       const next = Object.create(null);
       evs.forEach(e => { next[liveKey(e.home, e.away)] = e; });
       liveByKey = next;
 
-      // Pull full detail for the selected match: goal timings for the real
-      // win-prob path, plus the feed and team sheet. One request covers all
-      // three. Worth making once a match is under way or finished today —
-      // a fixture days out has no lineup and nothing to report.
-      const sel = liveFor(homeSelect.value, awaySelect.value);
-      if (sel && (sel.state === 'in' || sel.state === 'post')) {
-        const d = await Live.detail('epl', sel.id, sel.rawHome);
-        goalTimeline = sel.state === 'in' ? d.goals : [];
-        matchDetail = d;
-      } else {
-        goalTimeline = [];
-        matchDetail = null;
-      }
+      await refreshDetail();
 
       const anyLive = evs.some(e => e.state === 'in');
       const badge = document.querySelector('.term-tag.live');
