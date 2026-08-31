@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fulltime — NFL Game Predictor | Aaron Ho</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="terminal.css" />
+</head>
+<body>
+
+  <div class="shell">
+
+    <!-- NAV -->
+    <nav>
+      <div class="nav-left">
+        <a href="index.html" class="nav-logo">Fulltime</a>
+        <div class="league-tabs" role="group" aria-label="League">
+          <a href="index.html" class="league-tab">EPL</a>
+          <a href="nfl.html" class="league-tab is-on" aria-current="page">NFL</a>
+        </div>
+        <span class="nav-tagline">Game predictor · Elo ratings rebuilt from every game since 1999</span>
+      </div>
+      <span class="term-tag" id="season-tag">NFL</span>
+    </nav>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <div id="loading-status">Loading NFL game history…</div>
+    </div>
+
+    <div id="app" class="terminal" style="display:none;">
+
+      <!-- WATCHLIST -->
+      <div class="term-col term-watchlist">
+        <div class="panel-head">
+          <div class="term-title">Elo Watchlist</div>
+          <div class="term-tag">Tap = away side</div>
+        </div>
+        <div id="watchlist" class="panel-body scroll-y"></div>
+      </div>
+
+      <!-- CENTER -->
+      <div class="term-col term-center">
+
+        <div class="center-head">
+          <div class="symbol-bar">
+            <div>
+              <div class="symbol-teams"><span id="sym-away">—</span><span class="sv">@</span><span id="sym-home">—</span></div>
+              <div class="symbol-sub" id="symbol-sub"></div>
+            </div>
+            <div class="symbol-price-wrap">
+              <div class="symbol-price" id="symbol-price">—</div>
+              <div class="symbol-price-label" id="symbol-price-label">Favored</div>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <div class="tb-btn" id="tb-swap">⇄ Swap sides</div>
+            <div class="tb-btn" id="tb-reset">↺ Reset</div>
+            <div class="tb-sep"></div>
+            <select id="away-select" style="flex:1 1 130px; width:auto; max-width:220px;" aria-label="Away team"></select>
+            <span class="vs" style="padding-top:0;">@</span>
+            <select id="home-select" style="flex:1 1 130px; width:auto; max-width:220px;" aria-label="Home team"></select>
+            <div class="tb-sep"></div>
+            <select id="fixture-select" style="flex:1 1 200px; width:auto; max-width:280px;" aria-label="Upcoming game"></select>
+          </div>
+        </div>
+
+        <div class="center-body scroll-y">
+
+          <div class="center-section duo chart-duo">
+            <div class="chart-cell">
+              <div class="card-title">Elo Rating — Last 20 Games</div>
+              <div class="chart-legend" id="trend-legend"></div>
+              <div class="trend-svg-box" id="trend-chart"></div>
+            </div>
+
+            <div>
+              <div class="card-title">Win Probability</div>
+              <div class="prob-row">
+                <div class="prob-label" id="label-away">Away</div>
+                <div class="prob-track"><div class="prob-fill away" id="bar-away" style="width:0%"></div></div>
+                <div class="prob-pct" id="pct-away">—</div>
+              </div>
+              <div class="prob-row">
+                <div class="prob-label" id="label-home">Home</div>
+                <div class="prob-track"><div class="prob-fill home" id="bar-home" style="width:0%"></div></div>
+                <div class="prob-pct" id="pct-home">—</div>
+              </div>
+              <div class="verdict" id="verdict"></div>
+
+              <div class="stat-grid">
+                <div class="stat-col" id="stat-away"></div>
+                <div class="stat-col" id="stat-home"></div>
+              </div>
+              <div class="h2h-line" id="h2h"></div>
+            </div>
+          </div>
+
+          <div class="center-section">
+            <div class="metric-compare">
+              <div class="card-title">Form Comparison — Last 8 Games</div>
+              <div class="chart-legend" id="metric-legend"></div>
+              <div id="metric-bars"></div>
+            </div>
+          </div>
+
+          <div class="center-section">
+            <div class="card-title">How This Works</div>
+            <div class="methodology" id="methodology"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- QUOTE / SCHEDULE -->
+      <div class="term-col term-quotes">
+        <div class="panel-head">
+          <div class="term-title">Quote</div>
+        </div>
+        <div class="quote-panel">
+          <div class="quote-team" id="quote-team">—</div>
+          <div class="quote-price" id="quote-price">—</div>
+          <div class="quote-stats" id="quote-stats"></div>
+        </div>
+
+        <div class="panel-head">
+          <div class="term-title" id="week-title">Upcoming Games</div>
+          <div class="term-tag live">Live</div>
+        </div>
+        <div id="week-list" class="panel-body scroll-y"></div>
+      </div>
+
+    </div>
+
+    <div id="error" style="display:none;" class="error-box"></div>
+  </div>
+
+  <script>
+  (async function () {
+    // nflverse's games file — the same data `nflreadpy` downloads, read directly
+    // so this runs in the browser with no build step. Must be the raw.github…
+    // host: the github.com/…/raw/… form 302-redirects and the redirect hop has
+    // no CORS header, so the browser refuses it even though curl follows it fine.
+    const GAMES_URL = 'https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv';
+    const CACHE_KEY = 'nfl-predictor-cache-v1';
+    const CACHE_TTL = 6 * 60 * 60 * 1000;
+    const FIRST_SEASON = 1999;
+
+    // Calibrated 2026-08-30 by nfl_model.py: grid search on 2001-2022, scored on
+    // a 2023+ holdout it never saw. 64.3% accuracy / 0.633 log-loss.
+    const K = 20, HOME_ADV = 48, REGRESS = 0.6, DEFAULT_RATING = 1500;
+
+    const TEAM_NAMES = {
+      ARI:'Arizona Cardinals', ATL:'Atlanta Falcons', BAL:'Baltimore Ravens', BUF:'Buffalo Bills',
+      CAR:'Carolina Panthers', CHI:'Chicago Bears', CIN:'Cincinnati Bengals', CLE:'Cleveland Browns',
+      DAL:'Dallas Cowboys', DEN:'Denver Broncos', DET:'Detroit Lions', GB:'Green Bay Packers',
+      HOU:'Houston Texans', IND:'Indianapolis Colts', JAX:'Jacksonville Jaguars', KC:'Kansas City Chiefs',
+      LA:'Los Angeles Rams', LAC:'Los Angeles Chargers', LV:'Las Vegas Raiders', MIA:'Miami Dolphins',
+      MIN:'Minnesota Vikings', NE:'New England Patriots', NO:'New Orleans Saints', NYG:'New York Giants',
+      NYJ:'New York Jets', PHI:'Philadelphia Eagles', PIT:'Pittsburgh Steelers', SEA:'Seattle Seahawks',
+      SF:'San Francisco 49ers', TB:'Tampa Bay Buccaneers', TEN:'Tennessee Titans', WAS:'Washington Commanders',
+      // franchises that relocated/rebranded within the data's span
+      OAK:'Oakland Raiders', SD:'San Diego Chargers', STL:'St. Louis Rams', LAR:'Los Angeles Rams', WSH:'Washington'
+    };
+    const teamName = t => TEAM_NAMES[t] || t;
+
+    const loadingEl = document.getElementById('loading');
+    const loadingStatus = document.getElementById('loading-status');
+    const appEl = document.getElementById('app');
+    const errorEl = document.getElementById('error');
+
+    function showError(msg) {
+      loadingEl.style.display = 'none';
+      errorEl.style.display = 'block';
+      errorEl.textContent = msg;
+    }
+
+    // ── CSV parsing (quote-aware; nflverse has commas inside stadium names) ──
+    function parseCSV(text) {
+      const rows = [];
+      let row = [], field = '', inQ = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (inQ) {
+          if (c === '"') {
+            if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false;
+          } else field += c;
+        } else if (c === '"') inQ = true;
+        else if (c === ',') { row.push(field); field = ''; }
+        else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+        else if (c !== '\r') field += c;
+      }
+      if (field.length || row.length) { row.push(field); rows.push(row); }
+      const head = rows.shift();
+      return rows.filter(r => r.length > 1).map(r => {
+        const o = {};
+        head.forEach((h, i) => { o[h] = r[i]; });
+        return o;
+      });
+    }
+
+    async function loadGames() {
+      try {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          const p = JSON.parse(cached);
+          if (Date.now() - p.ts < CACHE_TTL && p.games && p.games.length) return p.games;
+        }
+      } catch (e) { /* ignore bad cache */ }
+
+      const r = await fetch(GAMES_URL);
+      if (!r.ok) throw new Error('games fetch failed');
+      const raw = parseCSV(await r.text());
+
+      const games = [];
+      for (const g of raw) {
+        const season = parseInt(g.season, 10);
+        if (!season || season < FIRST_SEASON) continue;
+        const played = g.home_score !== '' && g.away_score !== '' &&
+                       g.home_score != null && g.away_score != null;
+        games.push({
+          season, week: g.week, date: g.gameday || '', type: g.game_type || 'REG',
+          home: g.home_team, away: g.away_team,
+          hs: played ? parseInt(g.home_score, 10) : null,
+          as: played ? parseInt(g.away_score, 10) : null,
+          played, div: g.div_game === '1'
+        });
+      }
+      games.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), games }));
+      } catch (e) { /* storage full, fine */ }
+      return games;
+    }
+
+    // ── Elo ────────────────────────────────────────────────────────────────
+    // NFL scoring isn't Poisson (points come in 7s and 3s), and ties are ~0.2%
+    // of games, so the EPL tab's Dixon-Coles goals model has nothing to model
+    // here. Elo on margin of victory is the right shape for this sport.
+    function movMultiplier(margin, winnerDiff) {
+      return Math.log(Math.abs(margin) + 1) * (2.2 / (winnerDiff * 0.001 + 2.2));
+    }
+
+    function computeElo(games) {
+      const ratings = {}, history = {}, ratingTrail = {};
+      let prevSeason = null;
+      const get = t => (t in ratings ? ratings[t] : DEFAULT_RATING);
+
+      for (const g of games) {
+        if (!g.played) continue;
+        if (prevSeason !== null && g.season !== prevSeason) {
+          for (const t in ratings) {
+            ratings[t] = DEFAULT_RATING + (ratings[t] - DEFAULT_RATING) * REGRESS;
+          }
+        }
+        prevSeason = g.season;
+
+        const h = g.home, a = g.away;
+        const Rh = get(h), Ra = get(a);
+        const dr = Rh - Ra + HOME_ADV;
+        const pHome = 1 / (1 + Math.pow(10, -dr / 400));
+        const margin = g.hs - g.as;
+        const actual = margin > 0 ? 1 : margin < 0 ? 0 : 0.5;
+        const mult = margin === 0 ? 1 : movMultiplier(margin, margin > 0 ? dr : -dr);
+        const delta = K * mult * (actual - pHome);
+
+        ratings[h] = Rh + delta;
+        ratings[a] = Ra - delta;
+        (ratingTrail[h] = ratingTrail[h] || []).push({ date: g.date, rating: ratings[h] });
+        (ratingTrail[a] = ratingTrail[a] || []).push({ date: g.date, rating: ratings[a] });
+
+        [[h, a, g.hs, g.as, 'home'], [a, h, g.as, g.hs, 'away']].forEach(([team, opp, pf, pa, venue]) => {
+          (history[team] = history[team] || []).push({
+            date: g.date, opponent: opp, venue, gf: pf, ga: pa, season: g.season,
+            result: pf > pa ? 'W' : pf < pa ? 'L' : 'D'
+          });
+        });
+      }
+      return { ratings, history, ratingTrail };
+    }
+
+    function recentStats(history, team, n) {
+      const h = (history[team] || []).slice(-n);
+      if (!h.length) return null;
+      return {
+        pf: h.reduce((s, m) => s + m.gf, 0) / h.length,
+        pa: h.reduce((s, m) => s + m.ga, 0) / h.length,
+        margin: h.reduce((s, m) => s + (m.gf - m.ga), 0) / h.length,
+        wins: h.filter(m => m.result === 'W').length,
+        n: h.length
+      };
+    }
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    function predict(elo, home, away) {
+      const Rh = elo.ratings[home] ?? DEFAULT_RATING;
+      const Ra = elo.ratings[away] ?? DEFAULT_RATING;
+      const dr = Rh - Ra + HOME_ADV;
+      const homeWin = 1 / (1 + Math.pow(10, -dr / 400));
+      // Elo point gap -> point spread. ~25 Elo per point is the standard
+      // conversion used for NFL ratings.
+      const spread = dr / 25;
+      return {
+        homeWin, awayWin: 1 - homeWin, Rh, Ra, spread,
+        sHome: recentStats(elo.history, home, 8),
+        sAway: recentStats(elo.history, away, 8)
+      };
+    }
+
+    function formPills(history, team, n, size) {
+      const h = (history[team] || []).slice(-n);
+      const cls = size ? `pill ${size}` : 'pill';
+      return h.map(m => {
+        const venue = m.venue === 'home' ? 'vs' : '@';
+        const title = `${m.date} · ${venue} ${teamName(m.opponent)} · ${m.gf}-${m.ga} (${m.season})`;
+        return `<div class="${cls} ${m.result}" title="${title}">${m.result}</div>`;
+      }).join('');
+    }
+
+    function niceStep(range) {
+      const raw = range / 4;
+      const mag = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+      const norm = raw / mag;
+      const step = norm < 1.5 ? 1 : norm < 3.5 ? 2.5 : norm < 7.5 ? 5 : 10;
+      return step * mag;
+    }
+
+    function renderTrendChart(elo, home, away) {
+      const legendEl = document.getElementById('trend-legend');
+      const boxEl = document.getElementById('trend-chart');
+      const N = 20;
+      const th = (elo.ratingTrail[home] || []).slice(-N);
+      const ta = (elo.ratingTrail[away] || []).slice(-N);
+
+      legendEl.innerHTML = `
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-home)"></span>${teamName(home)}</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-away)"></span>${teamName(away)}</div>
+      `;
+      if (th.length < 2 && ta.length < 2) {
+        boxEl.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:12px 0;">Not enough game history yet.</div>';
+        return;
+      }
+
+      const measured = boxEl.getBoundingClientRect();
+      const W = Math.max(340, Math.round(measured.width) || 560);
+      const H = Math.max(220, Math.round(measured.height) || 300);
+      const PAD_L = 44, PAD_R = 46, PAD_T = 16, PAD_B = 24;
+      const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+
+      const all = th.concat(ta).map(p => p.rating);
+      let lo = Math.min(...all), hi = Math.max(...all);
+      if (lo === hi) { lo -= 10; hi += 10; }
+      const step = niceStep(hi - lo);
+      lo = Math.floor(lo / step) * step - step * 0.4;
+      hi = Math.ceil(hi / step) * step + step * 0.4;
+
+      const maxLen = Math.max(th.length, ta.length, 2);
+      const x = i => PAD_L + (i / (maxLen - 1)) * plotW;
+      const y = r => PAD_T + plotH - ((r - lo) / (hi - lo)) * plotH;
+      const pathFor = s => {
+        const off = maxLen - s.length;
+        return s.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i + off).toFixed(1)} ${y(p.rating).toFixed(1)}`).join(' ');
+      };
+
+      const grid = [];
+      for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+        const gy = y(v);
+        grid.push(`<line class="trend-gridline" x1="${PAD_L}" x2="${W - PAD_R}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"/>`);
+        grid.push(`<text class="trend-axis-label" x="${PAD_L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end">${Math.round(v)}</text>`);
+      }
+
+      const hOff = maxLen - th.length, aOff = maxLen - ta.length;
+      const lastH = th[th.length - 1], lastA = ta[ta.length - 1];
+      const dots = [], labels = [];
+      if (lastH) {
+        dots.push(`<circle class="trend-end-dot" r="4.5" cx="${x(th.length - 1 + hOff).toFixed(1)}" cy="${y(lastH.rating).toFixed(1)}" fill="var(--series-home)"/>`);
+        labels.push(`<text class="trend-end-label" x="${(x(th.length - 1 + hOff) + 8).toFixed(1)}" y="${(y(lastH.rating) + 3).toFixed(1)}" fill="var(--series-home)">${Math.round(lastH.rating)}</text>`);
+      }
+      if (lastA) {
+        dots.push(`<circle class="trend-end-dot" r="4.5" cx="${x(ta.length - 1 + aOff).toFixed(1)}" cy="${y(lastA.rating).toFixed(1)}" fill="var(--series-away)"/>`);
+        labels.push(`<text class="trend-end-label" x="${(x(ta.length - 1 + aOff) + 8).toFixed(1)}" y="${(y(lastA.rating) + 3).toFixed(1)}" fill="var(--series-away)">${Math.round(lastA.rating)}</text>`);
+      }
+
+      boxEl.innerHTML = `
+        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+          ${grid.join('')}
+          ${th.length >= 2 ? `<path class="trend-line" d="${pathFor(th)}" stroke="var(--series-home)"/>` : ''}
+          ${ta.length >= 2 ? `<path class="trend-line" d="${pathFor(ta)}" stroke="var(--series-away)"/>` : ''}
+          ${dots.join('')}${labels.join('')}
+          <line class="trend-crosshair" id="trend-crosshair" x1="0" x2="0" y1="${PAD_T}" y2="${PAD_T + plotH}"/>
+          <rect class="trend-hit" x="${PAD_L}" y="${PAD_T}" width="${plotW}" height="${plotH}" id="trend-hit"/>
+        </svg>
+        <div class="trend-tooltip" id="trend-tooltip"></div>`;
+
+      const svgEl = boxEl.querySelector('svg');
+      const hitEl = document.getElementById('trend-hit');
+      const crossEl = document.getElementById('trend-crosshair');
+      const tipEl = document.getElementById('trend-tooltip');
+      hitEl.addEventListener('pointermove', e => {
+        const rect = svgEl.getBoundingClientRect();
+        const scale = W / rect.width;
+        let idx = Math.round(((e.clientX - rect.left) * scale - PAD_L) / plotW * (maxLen - 1));
+        idx = clamp(idx, 0, maxLen - 1);
+        const cx = x(idx);
+        crossEl.setAttribute('x1', cx.toFixed(1));
+        crossEl.setAttribute('x2', cx.toFixed(1));
+        crossEl.style.opacity = '1';
+        const hp = th[idx - hOff], ap = ta[idx - aOff];
+        if (!hp && !ap) { tipEl.style.opacity = '0'; return; }
+        let rows = '';
+        if (hp) rows += `<div class="tt-row"><span class="tt-key" style="background:var(--series-home)"></span>${home}<span class="tt-val">${Math.round(hp.rating)}</span></div>`;
+        if (ap) rows += `<div class="tt-row"><span class="tt-key" style="background:var(--series-away)"></span>${away}<span class="tt-val">${Math.round(ap.rating)}</span></div>`;
+        tipEl.innerHTML = `<div class="tt-date">${(hp && hp.date) || (ap && ap.date) || ''}</div>${rows}`;
+        tipEl.style.opacity = '1';
+        let left = (cx / scale) + 12;
+        if (left + 150 > boxEl.getBoundingClientRect().width) left = (cx / scale) - 162;
+        tipEl.style.left = Math.max(0, left) + 'px';
+        tipEl.style.top = '4px';
+      });
+      hitEl.addEventListener('pointerleave', () => {
+        crossEl.style.opacity = '0'; tipEl.style.opacity = '0';
+      });
+    }
+
+    function metricRow(label, a, h, dp) {
+      const max = Math.max(a || 0, h || 0, 0.01) * 1.15;
+      const fmt = v => (v == null ? '—' : v.toFixed(dp));
+      return `
+        <div class="metric-group">
+          <div class="metric-label">${label}</div>
+          <div class="metric-bar-row">
+            <div class="metric-bar-track"><div class="metric-bar-fill away" style="width:${clamp(((a || 0) / max) * 100, 0, 100)}%"></div></div>
+            <div class="metric-bar-val">${fmt(a)}</div>
+          </div>
+          <div class="metric-bar-row">
+            <div class="metric-bar-track"><div class="metric-bar-fill home" style="width:${clamp(((h || 0) / max) * 100, 0, 100)}%"></div></div>
+            <div class="metric-bar-val">${fmt(h)}</div>
+          </div>
+        </div>`;
+    }
+
+    function h2hSummary(history, home, away) {
+      const h = (history[home] || []).filter(m => m.opponent === away).slice(-6);
+      if (!h.length) return 'No recent meetings in the loaded history.';
+      const hw = h.filter(m => m.result === 'W').length;
+      return `Last ${h.length} meetings: ${teamName(home)} ${hw}–${h.length - hw} ${teamName(away)}.`;
+    }
+
+    // ── Main ───────────────────────────────────────────────────────────────
+    let games, elo, teams, upcoming;
+    try {
+      games = await loadGames();
+      loadingStatus.textContent = 'Building Elo ratings…';
+      elo = computeElo(games);
+      const latestSeason = Math.max(...games.map(g => g.season));
+      document.getElementById('season-tag').textContent = `${latestSeason} NFL Season`;
+      const seasonGames = games.filter(g => g.season === latestSeason);
+      teams = Array.from(new Set(seasonGames.flatMap(g => [g.home, g.away]))).filter(Boolean).sort();
+      upcoming = seasonGames.filter(g => !g.played).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      if (!teams.length) throw new Error('no teams');
+    } catch (e) {
+      showError('Could not load NFL game data right now (the nflverse source may be temporarily unreachable). Try refreshing in a bit.');
+      return;
+    }
+
+    const ranked = teams.map(t => ({ team: t, rating: elo.ratings[t] ?? DEFAULT_RATING }))
+                        .sort((a, b) => b.rating - a.rating);
+
+    const homeSelect = document.getElementById('home-select');
+    const awaySelect = document.getElementById('away-select');
+    const fixtureSelect = document.getElementById('fixture-select');
+    teams.forEach(t => {
+      homeSelect.appendChild(new Option(teamName(t), t));
+      awaySelect.appendChild(new Option(teamName(t), t));
+    });
+
+    fixtureSelect.appendChild(new Option('— manual selection —', ''));
+    upcoming.slice(0, 60).forEach((g, i) => {
+      fixtureSelect.appendChild(new Option(`${g.date} — ${g.away} @ ${g.home}`, i));
+    });
+
+    if (upcoming.length) { homeSelect.value = upcoming[0].home; awaySelect.value = upcoming[0].away; fixtureSelect.value = '0'; }
+    else { homeSelect.value = ranked[0].team; awaySelect.value = ranked[1].team; }
+
+    fixtureSelect.addEventListener('change', () => {
+      if (fixtureSelect.value === '') return;
+      const g = upcoming[Number(fixtureSelect.value)];
+      homeSelect.value = g.home; awaySelect.value = g.away; render();
+    });
+    homeSelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
+    awaySelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
+    document.getElementById('tb-swap').addEventListener('click', () => {
+      const h = homeSelect.value; homeSelect.value = awaySelect.value; awaySelect.value = h;
+      fixtureSelect.value = ''; render();
+    });
+    document.getElementById('tb-reset').addEventListener('click', () => {
+      if (upcoming.length) { homeSelect.value = upcoming[0].home; awaySelect.value = upcoming[0].away; fixtureSelect.value = '0'; }
+      else { homeSelect.value = ranked[0].team; awaySelect.value = ranked[1].team; }
+      render();
+    });
+
+    (function watchChartSize() {
+      const box = document.getElementById('trend-chart');
+      if (!box || typeof ResizeObserver === 'undefined') return;
+      let lw = 0, lh = 0, pending = null;
+      new ResizeObserver(entries => {
+        const r = entries[0].contentRect;
+        const w = Math.round(r.width), h = Math.round(r.height);
+        if (Math.abs(w - lw) < 2 && Math.abs(h - lh) < 2) return;
+        lw = w; lh = h;
+        clearTimeout(pending);
+        pending = setTimeout(() => { if (elo) renderTrendChart(elo, homeSelect.value, awaySelect.value); }, 60);
+      }).observe(box);
+    })();
+
+    function renderWatchlist() {
+      const home = homeSelect.value, away = awaySelect.value;
+      const el = document.getElementById('watchlist');
+      el.innerHTML = ranked.map((r, i) => {
+        const trail = elo.ratingTrail[r.team] || [];
+        const d = trail.length > 1 ? trail[trail.length - 1].rating - trail[trail.length - 2].rating : null;
+        const cls = d == null ? 'flat' : d > 0.5 ? 'up' : d < -0.5 ? 'down' : 'flat';
+        const txt = d == null ? '—' : (d > 0 ? '+' : '') + Math.round(d);
+        const rowCls = r.team === home ? 'is-home' : (r.team === away ? 'is-away' : '');
+        const tag = r.team === home ? ' · HOME' : (r.team === away ? ' · AWAY' : '');
+        return `
+          <div class="wl-row ${rowCls}" data-team="${r.team}" tabindex="0" role="button">
+            <div class="wl-name">
+              <span class="n">${teamName(r.team)}</span>
+              <span class="wl-meta">
+                <span class="rank">#${i + 1}${tag}</span>
+                <span class="wl-form">${formPills(elo.history, r.team, 5, 'tiny')}</span>
+              </span>
+            </div>
+            <div class="wl-right">
+              <div class="wl-rating">${Math.round(r.rating)}</div>
+              <div class="wl-delta ${cls}">${txt}</div>
+            </div>
+          </div>`;
+      }).join('');
+      el.querySelectorAll('.wl-row').forEach(row => {
+        const go = () => { awaySelect.value = row.getAttribute('data-team'); fixtureSelect.value = ''; render(); };
+        row.addEventListener('click', go);
+        row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      });
+    }
+
+    function render() {
+      const home = homeSelect.value, away = awaySelect.value;
+      const p = predict(elo, home, away);
+      const hPct = Math.round(p.homeWin * 100), aPct = 100 - hPct;
+
+      document.getElementById('label-home').textContent = teamName(home);
+      document.getElementById('label-away').textContent = teamName(away);
+      document.getElementById('bar-home').style.width = (p.homeWin * 100).toFixed(1) + '%';
+      document.getElementById('bar-away').style.width = (p.awayWin * 100).toFixed(1) + '%';
+      document.getElementById('pct-home').textContent = hPct + '%';
+      document.getElementById('pct-away').textContent = aPct + '%';
+
+      const favHome = p.homeWin >= 0.5;
+      const fav = favHome ? home : away;
+      const favPct = Math.max(hPct, aPct);
+      const spread = Math.abs(p.spread);
+
+      document.getElementById('sym-home').textContent = teamName(home);
+      document.getElementById('sym-away').textContent = teamName(away);
+      document.getElementById('symbol-sub').innerHTML =
+        `ELO <b>${Math.round(p.Ra)}</b> · <b>${Math.round(p.Rh)}</b>` +
+        `&nbsp;&nbsp;HOME ADV <b>+${HOME_ADV}</b>` +
+        `&nbsp;&nbsp;PROJ SPREAD <b>${fav} −${spread.toFixed(1)}</b>`;
+      document.getElementById('symbol-price').textContent = favPct + '%';
+      document.getElementById('symbol-price-label').textContent = `${teamName(fav)} favored`;
+
+      document.getElementById('verdict').innerHTML = `
+        <div class="verdict-main">
+          <span class="verdict-team">${teamName(fav)}</span>
+          <span class="pill-stat">FAVORED · ${favPct}%</span>
+        </div>
+        <div class="verdict-sub">Projected spread ${fav} −${spread.toFixed(1)} · Elo ${Math.round(p.Rh)} vs ${Math.round(p.Ra)}</div>`;
+
+      document.getElementById('quote-team').textContent = teamName(fav);
+      document.getElementById('quote-price').textContent = favPct + '%';
+      document.getElementById('quote-stats').innerHTML = `
+        <div class="quote-stat-row"><span class="k">${teamName(home)} Elo</span><span class="v">${Math.round(p.Rh)}</span></div>
+        <div class="quote-stat-row"><span class="k">${teamName(away)} Elo</span><span class="v">${Math.round(p.Ra)}</span></div>
+        <div class="quote-stat-row"><span class="k">Rating gap</span><span class="v">${Math.round(p.Rh - p.Ra)}</span></div>
+        <div class="quote-stat-row"><span class="k">Projected spread</span><span class="v">${fav} −${spread.toFixed(1)}</span></div>`;
+
+      document.getElementById('metric-legend').innerHTML = `
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-away)"></span>${teamName(away)}</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-home)"></span>${teamName(home)}</div>`;
+      const sh = p.sHome, sa = p.sAway;
+      document.getElementById('metric-bars').innerHTML =
+        metricRow('Points scored / game (last 8)', sa && sa.pf, sh && sh.pf, 1) +
+        metricRow('Points allowed / game', sa && sa.pa, sh && sh.pa, 1) +
+        metricRow('Wins in last 8', sa && sa.wins, sh && sh.wins, 0) +
+        metricRow('Average margin', sa && sa.margin, sh && sh.margin, 1);
+
+      const block = t => `
+        <div class="stat-team">${teamName(t)}</div>
+        <div style="font-size:11px;color:var(--muted);">Recent form</div>
+        <div class="form-pills">${formPills(elo.history, t, 5)}</div>`;
+      document.getElementById('stat-home').innerHTML = block(home);
+      document.getElementById('stat-away').innerHTML = block(away);
+      document.getElementById('h2h').textContent = h2hSummary(elo.history, home, away);
+
+      renderWatchlist();
+      renderTrendChart(elo, home, away);
+    }
+
+    function renderWeekList() {
+      const listEl = document.getElementById('week-list');
+      const list = upcoming.slice(0, 24);
+      if (!list.length) {
+        listEl.innerHTML = '<div class="week-empty">No upcoming games in the loaded schedule.</div>';
+        return;
+      }
+      const todayStr = new Date().toISOString().slice(0, 10);
+      listEl.innerHTML = list.map((g, i) => {
+        const p = predict(elo, g.home, g.away);
+        const hPct = Math.round(p.homeWin * 100), aPct = 100 - hPct;
+        const favHome = p.homeWin >= 0.5;
+        return `
+          <button type="button" class="ticker-row" data-idx="${i}">
+            <div class="ticker-top">
+              <span class="ticker-date">${g.date === todayStr ? 'TODAY' : g.date} · WK ${g.week}</span>
+              <span class="ticker-fav">${favHome ? g.home : g.away} ${Math.max(hPct, aPct)}%</span>
+            </div>
+            <div class="ticker-matchup">${g.away}<span style="color:var(--muted);font-weight:400;"> @ </span>${g.home}</div>
+            <div class="week-stack" style="margin-top:6px;">
+              <div class="week-seg away" style="width:${aPct}%"></div>
+              <div class="week-seg home" style="width:${hPct}%"></div>
+            </div>
+          </button>`;
+      }).join('');
+      listEl.querySelectorAll('.ticker-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const g = list[Number(row.getAttribute('data-idx'))];
+          homeSelect.value = g.home; awaySelect.value = g.away;
+          fixtureSelect.value = String(upcoming.indexOf(g));
+          render();
+          const body = document.querySelector('.center-body');
+          if (body) body.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+      });
+    }
+
+    document.getElementById('methodology').innerHTML = `
+      Every team starts at 1500 and their rating updates after each game with the standard Elo
+      formula, scaled by margin of victory — a blowout moves the rating more than a one-score win.
+      The margin multiplier includes the usual autocorrelation correction, which stops strong
+      teams running away with the rating simply by beating weak ones badly. Ratings carry between
+      seasons but regress ${Math.round((1 - REGRESS) * 100)}% toward the mean each offseason, since
+      NFL rosters turn over far more than football squads do.
+      <br><br>
+      Win probability comes from the rating gap plus a +${HOME_ADV}-point home-field advantage; the
+      projected spread converts that gap at the standard ~25 Elo points per point of spread.
+      <br><br>
+      <b>Why Elo here and Dixon-Coles on the EPL tab?</b> That model treats goals as Poisson, which
+      works when scores are small integers arriving one at a time. NFL points come in 7s and 3s, and
+      ties are about 0.2% of games, so a three-outcome goals model has nothing to model. Elo on
+      margin of victory is the right shape for this sport.
+      <br><br>
+      <b>How accurate is it?</b> Constants (K=${K}, home advantage, offseason regression) were grid-searched
+      on 2001–2022 and then scored on 854 games from 2023 onward that the tuning never saw: it calls
+      <b>64.3%</b> of games correctly (0.633 log-loss). Always picking the home team gets 54.9%, and
+      the betting market manages 67.9% on the same games. Notably there's no overfitting gap here —
+      it scores the same 64.3% on the tuning era — and NFL is far more predictable than football,
+      where the equivalent model only reaches ~50%.
+      <br><br>
+      Schedule and results load live from
+      <code>nflverse/nfldata</code> (${FIRST_SEASON}–present, cached locally for 6h). That's the same
+      dataset <code>nflreadpy</code> downloads; reading it directly means this runs in the browser with
+      no build step. Run <code>nfl_model.py</code> to reproduce the calibration.`;
+
+    render();
+    renderWeekList();
+    loadingEl.style.display = 'none';
+    appEl.style.display = 'grid';
+  })();
+  </script>
+</body>
+</html>
