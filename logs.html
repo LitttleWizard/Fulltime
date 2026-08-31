@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fulltime — Prediction Log | Aaron Ho</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <!-- Vercel Web Analytics. Static site, so this is the script-tag form —
+       Vercel serves /_vercel/insights/script.js once Analytics is enabled
+       for the project. The @vercel/analytics npm package needs a bundler. -->
+  <script defer src="/_vercel/insights/script.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="terminal.css" />
+  <script src="dixon-coles.js"></script>
+  <style>
+    /* ── Log rows ── */
+    .log-row {
+      display: grid;
+      grid-template-columns: 78px 44px minmax(0,1fr) 118px 74px 60px;
+      align-items: center; gap: 10px;
+      padding: 10px 16px; border-bottom: 1px solid var(--border);
+      font-size: 12.5px;
+    }
+    .log-head {
+      position: sticky; top: 0; z-index: 2;
+      background: var(--bg); color: var(--muted);
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600;
+    }
+    .log-date { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted); }
+    .log-lg {
+      font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 2px 5px; text-align: center; color: var(--muted);
+    }
+    .log-match { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .log-match .w { font-weight: 600; }
+    .log-pick { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted); }
+    .log-pick .p { color: var(--text); font-weight: 600; }
+    .log-score { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text); }
+    .log-flag {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+      text-align: center; border-radius: 4px; padding: 3px 0;
+    }
+    .log-flag.hit  { color: var(--up);   background: rgba(0,214,143,0.12); }
+    .log-flag.miss { color: var(--down); background: rgba(245,69,92,0.12); }
+    @media (max-width: 620px) {
+      .log-row { grid-template-columns: 40px minmax(0,1fr) 60px; row-gap: 4px; }
+      .log-date, .log-pick, .log-score { grid-column: 2 / -1; }
+      .log-head { display: none; }
+    }
+
+    /* ── Summary ── */
+    .sum-block { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .sum-lg { font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.08em;
+              text-transform:uppercase; color: var(--muted); margin-bottom: 8px; }
+    .sum-hit { font-family:'JetBrains Mono',monospace; font-size:30px; font-weight:700; line-height:1; color: var(--brand); }
+    .sum-rec { font-family:'JetBrains Mono',monospace; font-size:11px; color: var(--muted); margin-top:5px; }
+    .sum-rows { margin-top: 12px; display:flex; flex-direction:column; gap:6px; }
+    .sum-r { display:flex; justify-content:space-between; gap:10px; font-size:12px; }
+    .sum-r .k { color: var(--muted); }
+    .sum-r .v { font-family:'JetBrains Mono',monospace; color: var(--text); }
+
+    /* ── Calibration ── */
+    .cal-row { display:grid; grid-template-columns: 58px 1fr 42px; align-items:center;
+               gap:9px; padding: 7px 16px; font-size:11.5px; }
+    .cal-band { font-family:'JetBrains Mono',monospace; font-size:10.5px; color: var(--muted); }
+    .cal-track { position:relative; height:16px; background: var(--surface2);
+                 border:1px solid var(--border); border-radius:4px; }
+    .cal-actual { position:absolute; inset:0 auto 0 0; background: var(--brand); opacity:.5; border-radius:3px 0 0 3px; }
+    .cal-ideal { position:absolute; top:-2px; bottom:-2px; width:2px; background: var(--text); opacity:.65; }
+    .cal-n { font-family:'JetBrains Mono',monospace; font-size:10px; color: var(--muted); text-align:right; }
+
+    .filter-row { display:flex; gap:6px; padding: 10px 16px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  </style>
+</head>
+<body>
+
+  <div class="shell">
+
+    <nav>
+      <div class="nav-left">
+        <a href="index.html" class="nav-logo">Fulltime</a>
+        <div class="league-tabs" role="group" aria-label="Section">
+          <a href="epl.html" class="league-tab">EPL</a>
+          <a href="nfl.html" class="league-tab">NFL</a>
+          <a href="logs.html" class="league-tab is-on" aria-current="page">LOGS</a>
+        </div>
+        <span class="nav-tagline">Every prediction replayed against what actually happened</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+        <span class="term-tag" id="scope-tag">—</span>
+        <button type="button" class="theme-btn" id="theme-toggle"></button>
+      </div>
+    </nav>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <div id="loading-status">Replaying predictions…</div>
+    </div>
+
+    <div id="app" class="terminal" style="display:none;">
+
+      <!-- SUMMARY -->
+      <div class="term-col term-watchlist">
+        <div class="panel-head">
+          <div class="term-title">Track Record</div>
+          <div class="term-tag">Walk-forward</div>
+        </div>
+        <div id="summary" class="panel-body scroll-y"></div>
+      </div>
+
+      <!-- LOG -->
+      <div class="term-col term-center">
+        <div class="center-head" style="padding:0;">
+          <div class="filter-row" id="filters">
+            <div class="tb-btn is-on" data-f="all">All</div>
+            <div class="tb-btn" data-f="EPL">EPL</div>
+            <div class="tb-btn" data-f="NFL">NFL</div>
+            <div class="tb-sep"></div>
+            <div class="tb-btn" data-f="miss">Misses only</div>
+            <div class="tb-btn" data-f="upset">Upsets (&lt;35%)</div>
+          </div>
+          <div class="log-row log-head">
+            <span>Date</span><span>Lg</span><span>Match</span>
+            <span>Model called</span><span>Result</span><span style="text-align:center;">Verdict</span>
+          </div>
+        </div>
+        <div id="log" class="panel-body scroll-y"></div>
+      </div>
+
+      <!-- CALIBRATION -->
+      <div class="term-col term-quotes">
+        <div class="panel-head">
+          <div class="term-title">Calibration</div>
+          <div class="term-tag" id="cal-tag">All</div>
+        </div>
+        <div style="padding:12px 16px 4px;font-size:11.5px;color:var(--muted);line-height:1.55;">
+          Of the calls made at each confidence level, how many actually landed.
+          The pale bar is what happened; the vertical line is what was promised —
+          they should sit on top of each other.
+        </div>
+        <div id="calibration" class="panel-body scroll-y"></div>
+      </div>
+
+    </div>
+
+    <div id="error" style="display:none;" class="error-box"></div>
+  </div>
+
+  <script>
+  (async function () {
+    const OF = 'https://raw.githubusercontent.com/openfootball/football.json/master';
+    const NFL_URL = 'https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv';
+
+    // Same constants the live tabs predict with — the log has to reflect the
+    // real models, not a simplified stand-in.
+    const EPL_SEASONS = ['2023-24', '2024-25', '2025-26', '2026-27'];
+    const EPL_WARMUP = 2;            // seasons used only to build ratings
+    const DC_REFIT_EVERY = 15;
+    const NFL_FIRST = 2019, NFL_LOG_FROM = 2023;
+    const K = 20, HOME_ADV = 48, REGRESS = 0.6, DEF = 1500;
+
+    const loadingEl = document.getElementById('loading');
+    const statusEl = document.getElementById('loading-status');
+    const appEl = document.getElementById('app');
+    const errEl = document.getElementById('error');
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+      c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const short = n => String(n).replace(/\s+(FC|AFC)$/i, '');
+    const dayNum = d => { const t = Date.parse(d + 'T00:00:00Z'); return isNaN(t) ? 0 : t / 86400000; };
+
+    function finalScore(m) {
+      if (!m.score) return null;
+      if (Array.isArray(m.score.ft)) return m.score.ft;
+      if (Array.isArray(m.score)) return m.score;
+      return null;
+    }
+    const canon = n => { const m = String(n||'').trim().match(/^(.*?)\s+(?:FC|AFC)$/i); return m ? m[1] : String(n||'').trim(); };
+
+    // ── EPL: walk-forward Dixon-Coles ────────────────────────────────────
+    async function eplLog() {
+      const played = [];
+      for (let i = 0; i < EPL_SEASONS.length; i++) {
+        statusEl.textContent = `Loading EPL ${EPL_SEASONS[i]}…`;
+        try {
+          const r = await fetch(`${OF}/${EPL_SEASONS[i]}/en.1.json`);
+          if (!r.ok) continue;
+          const d = await r.json();
+          (d.matches || []).forEach(m => {
+            const ft = finalScore(m);
+            if (!ft || !m.date) return;
+            played.push({ seasonIdx: i, date: m.date, day: dayNum(m.date),
+                          home: canon(m.team1), away: canon(m.team2), hg: ft[0], ag: ft[1] });
+          });
+        } catch (e) { /* skip season */ }
+      }
+      played.sort((a, b) => a.date.localeCompare(b.date));
+
+      statusEl.textContent = 'Replaying EPL predictions…';
+      const rows = [];
+      const history = [];
+      let model = null, since = 1e9;
+      for (const g of played) {
+        if (since >= DC_REFIT_EVERY && history.length > 80) {
+          model = DixonColes.fit(history, g.day);
+          since = 0;
+        }
+        if (model && g.seasonIdx >= EPL_WARMUP) {
+          const p = DixonColes.predict(model, g.home, g.away);
+          const probs = [p.homeWin, p.draw, p.awayWin];
+          const pickIdx = probs.indexOf(Math.max(...probs));
+          const actualIdx = g.hg > g.ag ? 0 : (g.hg < g.ag ? 2 : 1);
+          rows.push({
+            lg: 'EPL', date: g.date, home: short(g.home), away: short(g.away),
+            pick: ['HOME', 'DRAW', 'AWAY'][pickIdx],
+            pickName: pickIdx === 0 ? short(g.home) : pickIdx === 2 ? short(g.away) : 'Draw',
+            pickP: probs[pickIdx], pOfActual: probs[actualIdx],
+            score: `${g.hg}–${g.ag}`, hit: pickIdx === actualIdx
+          });
+        }
+        history.push({ day: g.day, home: g.home, away: g.away, hg: g.hg, ag: g.ag });
+        since++;
+      }
+      return rows;
+    }
+
+    // ── NFL: walk-forward Elo ────────────────────────────────────────────
+    function parseCSV(text) {
+      const rows = []; let row = [], f = '', q = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (q) { if (c === '"') { if (text[i+1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+        else if (c === '"') q = true;
+        else if (c === ',') { row.push(f); f = ''; }
+        else if (c === '\n') { row.push(f); rows.push(row); row = []; f = ''; }
+        else if (c !== '\r') f += c;
+      }
+      if (f.length || row.length) { row.push(f); rows.push(row); }
+      const head = rows.shift();
+      return rows.filter(r => r.length > 1).map(r => { const o = {}; head.forEach((h, i) => o[h] = r[i]); return o; });
+    }
+
+    async function nflLog() {
+      statusEl.textContent = 'Loading NFL games…';
+      const r = await fetch(NFL_URL);
+      if (!r.ok) return [];
+      const games = [];
+      for (const g of parseCSV(await r.text())) {
+        const s = parseInt(g.season, 10);
+        if (!s || s < NFL_FIRST) continue;
+        if (!g.home_score || !g.away_score) continue;
+        games.push({ season: s, date: g.gameday || '', week: g.week,
+                     home: g.home_team, away: g.away_team,
+                     hs: +g.home_score, as: +g.away_score });
+      }
+      games.sort((a, b) => a.date.localeCompare(b.date));
+
+      statusEl.textContent = 'Replaying NFL predictions…';
+      const ratings = {}, rows = [];
+      let prev = null;
+      for (const g of games) {
+        if (prev !== null && g.season !== prev) {
+          for (const t in ratings) ratings[t] = DEF + (ratings[t] - DEF) * REGRESS;
+        }
+        prev = g.season;
+        const Rh = ratings[g.home] ?? DEF, Ra = ratings[g.away] ?? DEF;
+        const dr = Rh - Ra + HOME_ADV;
+        const pHome = 1 / (1 + Math.pow(10, -dr / 400));
+        const margin = g.hs - g.as;
+
+        if (g.season >= NFL_LOG_FROM && margin !== 0) {
+          const homePick = pHome >= 0.5;
+          rows.push({
+            lg: 'NFL', date: g.date, home: g.home, away: g.away,
+            pick: homePick ? 'HOME' : 'AWAY',
+            pickName: homePick ? g.home : g.away,
+            pickP: Math.max(pHome, 1 - pHome),
+            pOfActual: margin > 0 ? pHome : 1 - pHome,
+            score: `${g.hs}–${g.as}`, hit: homePick === (margin > 0)
+          });
+        }
+        const actual = margin > 0 ? 1 : margin < 0 ? 0 : 0.5;
+        const mult = margin === 0 ? 1
+          : Math.log(Math.abs(margin) + 1) * (2.2 / ((margin > 0 ? dr : -dr) * 0.001 + 2.2));
+        const d = K * mult * (actual - pHome);
+        ratings[g.home] = Rh + d; ratings[g.away] = Ra - d;
+      }
+      return rows;
+    }
+
+    // ── Run ──────────────────────────────────────────────────────────────
+    let all = [];
+    try {
+      const [e, n] = await Promise.all([eplLog(), nflLog()]);
+      all = e.concat(n).sort((a, b) => b.date.localeCompare(a.date));   // newest first
+      if (!all.length) throw new Error('no rows');
+    } catch (err) {
+      loadingEl.style.display = 'none';
+      errEl.style.display = 'block';
+      errEl.textContent = 'Could not rebuild the prediction log right now (a data source may be unreachable). Try refreshing shortly.';
+      return;
+    }
+
+    const dates = all.map(r => r.date).sort();
+    document.getElementById('scope-tag').textContent =
+      `${dates[0]} → ${dates[dates.length - 1]} · ${all.length} calls`;
+
+    const stats = rows => {
+      if (!rows.length) return null;
+      const hits = rows.filter(r => r.hit).length;
+      const ll = rows.reduce((s, r) => s - Math.log(Math.max(r.pOfActual, 1e-15)), 0) / rows.length;
+      const conf = rows.reduce((s, r) => s + r.pickP, 0) / rows.length;
+      return { n: rows.length, hits, rate: hits / rows.length, ll, conf };
+    };
+
+    function renderSummary() {
+      const groups = [['All', all], ['Premier League', all.filter(r => r.lg === 'EPL')],
+                      ['NFL', all.filter(r => r.lg === 'NFL')]];
+      document.getElementById('summary').innerHTML = groups.map(([name, rows]) => {
+        const s = stats(rows);
+        if (!s) return '';
+        return `
+          <div class="sum-block">
+            <div class="sum-lg">${name}</div>
+            <div class="sum-hit">${(s.rate * 100).toFixed(1)}%</div>
+            <div class="sum-rec">${s.hits}–${s.n - s.hits} &nbsp;·&nbsp; ${s.n} calls</div>
+            <div class="sum-rows">
+              <div class="sum-r"><span class="k">Avg. confidence</span><span class="v">${(s.conf * 100).toFixed(1)}%</span></div>
+              <div class="sum-r"><span class="k">Log-loss</span><span class="v">${s.ll.toFixed(3)}</span></div>
+              <div class="sum-r"><span class="k">Over/under-confident</span><span class="v">${
+                (s.rate - s.conf) >= 0 ? '+' : ''}${((s.rate - s.conf) * 100).toFixed(1)} pt</span></div>
+            </div>
+          </div>`;
+      }).join('') + `
+        <div class="sum-block" style="border-bottom:none;">
+          <div class="sum-lg">How to read this</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.6;">
+            Every call here was made <b style="color:var(--text)">walk-forward</b> — the model saw
+            only matches played before that date, exactly as it would have on the day. Nothing is
+            scored on data it was fitted to.
+            <br><br>
+            A hit rate near the average confidence is the goal. Being <i>right more often</i> than
+            you claimed is not a win — it means the probabilities were too timid.
+          </div>
+        </div>`;
+    }
+
+    function renderCalibration(rows) {
+      const bins = [];
+      for (let b = 3; b < 10; b++) {
+        const inB = rows.filter(r => Math.floor(r.pickP * 10) === b);
+        if (inB.length < 8) continue;
+        bins.push({
+          lo: b * 10, hi: b * 10 + 10, n: inB.length,
+          promised: inB.reduce((s, r) => s + r.pickP, 0) / inB.length,
+          actual: inB.filter(r => r.hit).length / inB.length
+        });
+      }
+      document.getElementById('calibration').innerHTML = bins.map(b => `
+        <div class="cal-row">
+          <span class="cal-band">${b.lo}–${b.hi}%</span>
+          <span class="cal-track">
+            <span class="cal-actual" style="width:${(b.actual * 100).toFixed(1)}%"></span>
+            <span class="cal-ideal" style="left:${(b.promised * 100).toFixed(1)}%"></span>
+          </span>
+          <span class="cal-n">${b.n}</span>
+        </div>`).join('') || '<div class="week-empty">Not enough calls in this slice.</div>';
+    }
+
+    let filter = 'all';
+    function visible() {
+      if (filter === 'EPL' || filter === 'NFL') return all.filter(r => r.lg === filter);
+      if (filter === 'miss') return all.filter(r => !r.hit);
+      if (filter === 'upset') return all.filter(r => !r.hit && r.pOfActual < 0.35);
+      return all;
+    }
+
+    function renderLog() {
+      const rows = visible();
+      document.getElementById('cal-tag').textContent =
+        filter === 'all' ? 'All' : filter === 'miss' ? 'Misses' : filter === 'upset' ? 'Upsets' : filter;
+      document.getElementById('log').innerHTML = rows.slice(0, 400).map(r => `
+        <div class="log-row">
+          <span class="log-date">${esc(r.date)}</span>
+          <span class="log-lg">${r.lg}</span>
+          <span class="log-match"><span class="w">${esc(r.home)}</span>
+            <span style="color:var(--muted)">${r.lg === 'NFL' ? 'vs' : 'v'}</span>
+            <span class="w">${esc(r.away)}</span></span>
+          <span class="log-pick"><span class="p">${esc(r.pickName)}</span> ${(r.pickP * 100).toFixed(0)}%</span>
+          <span class="log-score">${esc(r.score)}</span>
+          <span class="log-flag ${r.hit ? 'hit' : 'miss'}">${r.hit ? 'HIT' : 'MISS'}</span>
+        </div>`).join('') ||
+        '<div class="week-empty">No calls match this filter.</div>';
+      renderCalibration(rows);
+    }
+
+    document.getElementById('filters').addEventListener('click', e => {
+      const btn = e.target.closest('.tb-btn');
+      if (!btn) return;
+      filter = btn.getAttribute('data-f');
+      document.querySelectorAll('#filters .tb-btn').forEach(b => b.classList.toggle('is-on', b === btn));
+      renderLog();
+      document.getElementById('log').scrollTop = 0;
+    });
+
+    renderSummary();
+    renderLog();
+    loadingEl.style.display = 'none';
+    appEl.style.display = 'grid';
+  })();
+  </script>
+</body>
+</html>
