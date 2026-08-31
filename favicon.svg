@@ -1,8 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <circle cx="16" cy="16" r="13" stroke="#7dd3fc" stroke-width="1.8"/>
-  <line x1="16" y1="3" x2="16" y2="29" stroke="#7dd3fc" stroke-width="1.8"/>
-  <line x1="3" y1="16" x2="29" y2="16" stroke="#7dd3fc" stroke-width="1.8"/>
-  <ellipse cx="16" cy="16" rx="7.5" ry="13" stroke="#7dd3fc" stroke-width="1.8"/>
-  <path d="M 4.5 10 Q 16 13.5 27.5 10" stroke="#7dd3fc" stroke-width="1.4" fill="none"/>
-  <path d="M 4.5 22 Q 16 18.5 27.5 22" stroke="#7dd3fc" stroke-width="1.4" fill="none"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Fulltime: a rating line on the dark terminal tile.
+       Deliberately only 4 points and a thick stroke so it still reads at 16px. -->
+  <rect width="32" height="32" rx="7.5" fill="#0a0c0f"/>
+  <rect x="0.6" y="0.6" width="30.8" height="30.8" rx="7"
+        fill="none" stroke="#28cc95" stroke-opacity="0.28" stroke-width="1.2"/>
+  <path d="M5.5 23.5 L12 16.5 L18 19.5 L26 8.5"
+        fill="none" stroke="#28cc95" stroke-width="3.4"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="26" cy="8.5" r="3.4" fill="#28cc95"/>
 </svg>
