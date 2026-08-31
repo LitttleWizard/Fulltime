@@ -15,6 +15,7 @@
   <script src="theme.js"></script>
   <link rel="stylesheet" href="terminal.css" />
   <script src="dixon-coles.js"></script>
+  <script src="live.js"></script>
   <style>
     /* ── Log rows ── */
     .log-row {
@@ -136,13 +137,12 @@
       <div class="term-col term-quotes">
         <div class="panel-head">
           <div class="term-title">Calibration</div>
-          <div class="term-tag" id="cal-tag">All</div>
+          <div class="chart-tabs" id="cal-tabs" role="group" aria-label="Calibration source">
+            <button type="button" class="chart-tab is-on" data-cal="pre">PRE-MATCH</button>
+            <button type="button" class="chart-tab" data-cal="live">IN-PLAY</button>
+          </div>
         </div>
-        <div style="padding:12px 16px 4px;font-size:11.5px;color:var(--muted);line-height:1.55;">
-          Of the calls made at each confidence level, how many actually landed.
-          The pale bar is what happened; the vertical line is what was promised —
-          they should sit on top of each other.
-        </div>
+        <div id="cal-note" style="padding:12px 16px 4px;font-size:11.5px;color:var(--muted);line-height:1.55;"></div>
         <div id="calibration" class="panel-body scroll-y"></div>
       </div>
 
@@ -225,6 +225,10 @@
         history.push({ day: g.day, home: g.home, away: g.away, hg: g.hg, ag: g.ag });
         since++;
       }
+      // keep the final fit so matches that end before openfootball publishes
+      // them can still be scored with the same model
+      eplModel = model;
+      eplSeen = new Set(rows.map(r => `${r.date}|${r.home}|${r.away}`));
       return rows;
     }
 
@@ -289,10 +293,24 @@
         const d = K * mult * (actual - pHome);
         ratings[g.home] = Rh + d; ratings[g.away] = Ra - d;
       }
+      nflRatings = ratings;
+      nflSeen = new Set(rows.map(r => `${r.date}|${r.home}|${r.away}`));
       return rows;
     }
 
     // ── Run ──────────────────────────────────────────────────────────────
+    // In-play calibration is measured offline (one ESPN request per match, far
+    // too many for page load) by inplay_backtest.py. Optional: if the snapshot
+    // isn't there, the in-play tab just says so.
+    let eplModel = null, nflRatings = null;
+    let eplSeen = new Set(), nflSeen = new Set();
+
+    let inplay = null;
+    try {
+      const r = await fetch('inplay-calibration.json');
+      if (r.ok) inplay = await r.json();
+    } catch (e) { /* optional */ }
+
     let all = [];
     try {
       const [e, n] = await Promise.all([eplLog(), nflLog()]);
@@ -336,6 +354,26 @@
             </div>
           </div>`;
       }).join('') + `
+        ${inplay ? `
+        <div class="sum-block">
+          <div class="sum-lg">In-play model</div>
+          <div class="sum-hit">${(inplay.overall.acc * 100).toFixed(1)}%</div>
+          <div class="sum-rec">${inplay.overall.n} calls across ${inplay.matches} matches</div>
+          <div class="sum-rows">
+            ${inplay.checkpoints.map(cp => {
+              const b = inplay.byMinute[String(cp)];
+              return `<div class="sum-r"><span class="k">at ${cp}'</span>` +
+                     `<span class="v">${(b.acc * 100).toFixed(1)}%</span></div>`;
+            }).join('')}
+            <div class="sum-r"><span class="k">Log-loss</span><span class="v">${inplay.overall.logloss.toFixed(3)}</span></div>
+          </div>
+          <div style="margin-top:10px;font-size:11.5px;color:var(--muted);line-height:1.55;">
+            Accuracy climbs as a match unfolds — there is simply more to go on.
+            But see the in-play calibration tab: these probabilities are
+            <b style="color:var(--text)">overconfident</b>, unlike the pre-match ones.
+          </div>
+        </div>` : ''}
+
         <div class="sum-block" style="border-bottom:none;">
           <div class="sum-lg">How to read this</div>
           <div style="font-size:12px;color:var(--muted);line-height:1.6;">
@@ -349,7 +387,43 @@
         </div>`;
     }
 
+    let calSource = 'pre';
+
+    function renderInplayCalibration() {
+      const note = document.getElementById('cal-note');
+      const el = document.getElementById('calibration');
+      if (!inplay) {
+        note.textContent = 'No in-play measurement available. Run inplay_backtest.py to generate one.';
+        el.innerHTML = '';
+        return;
+      }
+      note.innerHTML = `In-play probabilities at ${inplay.checkpoints.map(c => c + "'").join(', ')}
+        across ${inplay.matches} finished matches. Bars run <b>past</b> the line where an outcome
+        happened more often than promised, and fall <b>short</b> where it happened less.`;
+      el.innerHTML = inplay.overall.calibration.map(c => `
+        <div class="cal-row">
+          <span class="cal-band">${c.lo}–${c.hi}%</span>
+          <span class="cal-track">
+            <span class="cal-actual" style="width:${(c.actual * 100).toFixed(1)}%"></span>
+            <span class="cal-ideal" style="left:${(c.predicted * 100).toFixed(1)}%"></span>
+          </span>
+          <span class="cal-n">${c.n}</span>
+        </div>`).join('') + `
+        <div style="padding:14px 16px 20px;font-size:11.5px;color:var(--muted);line-height:1.6;">
+          The pattern is consistent: long shots come in about twice as often as claimed
+          (the 0–10% band lands ${(inplay.overall.calibration[0] ? (inplay.overall.calibration[0].actual * 100).toFixed(1) : '—')}% of the time),
+          and near-certainties fail more than they should. That is the in-play model assuming both
+          sides keep attacking at their pre-match rate — it has no idea a leading team has dropped deep,
+          gone down to ten men, or started running the clock down.
+        </div>`;
+    }
+
     function renderCalibration(rows) {
+      if (calSource === 'live') { renderInplayCalibration(); return; }
+      document.getElementById('cal-note').innerHTML =
+        `Of the calls made at each confidence level, how many actually landed.
+         The pale bar is what happened; the vertical line is what was promised —
+         they should sit on top of each other.`;
       const bins = [];
       for (let b = 3; b < 10; b++) {
         const inB = rows.filter(r => Math.floor(r.pickP * 10) === b);
@@ -381,8 +455,6 @@
 
     function renderLog() {
       const rows = visible();
-      document.getElementById('cal-tag').textContent =
-        filter === 'all' ? 'All' : filter === 'miss' ? 'Misses' : filter === 'upset' ? 'Upsets' : filter;
       document.getElementById('log').innerHTML = rows.slice(0, 400).map(r => `
         <div class="log-row">
           <span class="log-date">${esc(r.date)}</span>
@@ -392,7 +464,7 @@
             <span class="w">${esc(r.away)}</span></span>
           <span class="log-pick"><span class="p">${esc(r.pickName)}</span> ${(r.pickP * 100).toFixed(0)}%</span>
           <span class="log-score">${esc(r.score)}</span>
-          <span class="log-flag ${r.hit ? 'hit' : 'miss'}">${r.hit ? 'HIT' : 'MISS'}</span>
+          <span class="log-flag ${r.hit ? 'hit' : 'miss'}">${r.hit ? 'HIT' : 'MISS'}${r.fresh ? '<span class="log-new">NEW</span>' : ''}</span>
         </div>`).join('') ||
         '<div class="week-empty">No calls match this filter.</div>';
       renderCalibration(rows);
@@ -407,8 +479,88 @@
       document.getElementById('log').scrollTop = 0;
     });
 
+    document.getElementById('cal-tabs').addEventListener('click', e => {
+      const b = e.target.closest('.chart-tab');
+      if (!b) return;
+      calSource = b.getAttribute('data-cal');
+      document.querySelectorAll('#cal-tabs .chart-tab')
+        .forEach(x => x.classList.toggle('is-on', x === b));
+      renderCalibration(visible());
+    });
+
+
+    // ── Keep the log current between data-source updates ──────────────────
+    // openfootball and nflverse publish results hours after full time. ESPN
+    // knows immediately, so matches that have just finished are scored here
+    // with the same fitted model and merged in, rather than waiting a day.
+    async function mergeJustFinished() {
+      let added = 0;
+
+      const evs = await Promise.all([Live.fetch('epl'), Live.fetch('nfl')]);
+      const [eplEvs, nflEvs] = evs;
+
+      if (eplModel) {
+        for (const e of eplEvs) {
+          if (e.state !== 'post' || e.hs == null || e.as == null) continue;
+          const key = `${e.date}|${short(e.home)}|${short(e.away)}`;
+          if (eplSeen.has(key)) continue;
+          const p = DixonColes.predict(eplModel, e.home, e.away);
+          const probs = [p.homeWin, p.draw, p.awayWin];
+          const pick = probs.indexOf(Math.max(...probs));
+          const actual = e.hs > e.as ? 0 : (e.hs < e.as ? 2 : 1);
+          all.push({
+            lg: 'EPL', date: e.date, home: short(e.home), away: short(e.away),
+            pick: ['HOME', 'DRAW', 'AWAY'][pick],
+            pickName: pick === 0 ? short(e.home) : pick === 2 ? short(e.away) : 'Draw',
+            pickP: probs[pick], pOfActual: probs[actual],
+            score: `${e.hs}–${e.as}`, hit: pick === actual, fresh: true
+          });
+          eplSeen.add(key); added++;
+        }
+      }
+
+      if (nflRatings) {
+        for (const e of nflEvs) {
+          if (e.state !== 'post' || e.hs == null || e.as == null) continue;
+          if (e.hs === e.as) continue;                       // ties aren't scored
+          const key = `${e.date}|${e.home}|${e.away}`;
+          if (nflSeen.has(key)) continue;
+          const Rh = nflRatings[e.home] ?? DEF, Ra = nflRatings[e.away] ?? DEF;
+          const pHome = 1 / (1 + Math.pow(10, -(Rh - Ra + HOME_ADV) / 400));
+          const homePick = pHome >= 0.5, homeWon = e.hs > e.as;
+          all.push({
+            lg: 'NFL', date: e.date, home: e.home, away: e.away,
+            pick: homePick ? 'HOME' : 'AWAY',
+            pickName: homePick ? e.home : e.away,
+            pickP: Math.max(pHome, 1 - pHome),
+            pOfActual: homeWon ? pHome : 1 - pHome,
+            score: `${e.hs}–${e.as}`, hit: homePick === homeWon, fresh: true
+          });
+          nflSeen.add(key); added++;
+        }
+      }
+
+      if (added) {
+        all.sort((a, b) => b.date.localeCompare(a.date));
+        const dates = all.map(r => r.date).sort();
+        document.getElementById('scope-tag').textContent =
+          `${dates[0]} → ${dates[dates.length - 1]} · ${all.length} calls`;
+        renderSummary();
+        renderLog();
+      }
+      return added;
+    }
+
     renderSummary();
     renderLog();
+
+    // Pick up matches that have just ended, then keep checking while the tab is
+    // open. One cheap ESPN call per poll; the log only re-renders if something
+    // actually finished.
+    mergeJustFinished();
+    setInterval(() => { if (!document.hidden) mergeJustFinished(); }, 120000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) mergeJustFinished(); });
+
     loadingEl.style.display = 'none';
     appEl.style.display = 'grid';
   })();

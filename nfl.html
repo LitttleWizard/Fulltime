@@ -756,7 +756,10 @@
 
     function renderWeekList() {
       const listEl = document.getElementById('week-list');
-      const list = upcoming.slice(0, 24);
+      const list = upcoming.filter(g => {
+        const lv = liveFor(g.home, g.away);
+        return !(lv && lv.state === 'post');   // finished games make way for the next
+      }).slice(0, 24);
       if (!list.length) {
         listEl.innerHTML = '<div class="week-empty">No upcoming games in the loaded schedule.</div>';
         return;

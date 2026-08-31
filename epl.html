@@ -930,7 +930,15 @@
       weekEnd.setDate(weekEnd.getDate() + 7);
       const weekEndStr = weekEnd.toISOString().slice(0, 10);
 
-      const remaining = upcomingFixtures.filter(m => m.date >= todayStr);
+      // Drop matches ESPN reports as finished. openfootball only publishes the
+      // result hours later, so without this a match that has just ended lingers
+      // in the rail showing stale pre-match odds. Dropping it here means the
+      // next fixture slides up automatically on the following poll.
+      const remaining = upcomingFixtures.filter(m => {
+        if (m.date < todayStr) return false;
+        const lv = liveFor(m.team1, m.team2);
+        return !(lv && lv.state === 'post');
+      });
       const thisWeek = remaining.filter(m => m.date <= weekEndStr);
 
       // The rail scrolls internally, so always give it enough rows to fill the
