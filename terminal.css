@@ -13,8 +13,8 @@
       --draw: #9ca3af;
       --loss: #fca5a5;
       /* validated categorical pair (dark surface) — see dataviz skill checks */
-      --series-home: #0284c7;
-      --series-away: #ef4444;
+      --series-home: #3b82f6;   /* vivid blue */
+      --series-away: #f43f5e;   /* rose */
       --grid-line: rgba(255,255,255,0.06);
       /* brand accent — WCAG contrast 9.4:1 on --bg */
       --brand: #28cc95;
@@ -25,6 +25,82 @@
       --up: #00d68f;
       --down: #f5455c;
     }
+
+    /* ── Light theme ──────────────────────────────────────────────────────
+       A slate-tinted neutral rather than flat grey. Dark mode separates
+       panels by luminance, which inverts badly on light, so here the centre
+       is pure white, the side rails carry a faint tint, and the nav gets a
+       soft shadow — depth from layering instead of heavy borders.
+       All colours ≥ 4.5:1 on both the rail and white. */
+    :root[data-theme="light"] {
+      --bg:      #ffffff;
+      --rail:    #f8fafc;
+      --surface: #ffffff;
+      --surface2:#f1f5f9;
+      --border:  #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text:    #0f172a;
+      --muted:   #64748b;
+      --accent:  #0369a1;
+      --win:  #15803d;
+      --draw: #64748b;
+      --loss: #b91c1c;
+      --series-home: #2563eb;
+      --series-away: #e11d48;
+      --grid-line: #eef2f7;
+      --brand: #087a54;
+      --brand-dim: rgba(8,122,84,0.09);
+      --brand-border: rgba(8,122,84,0.38);
+      --live: #be185d;
+      --up: #087a54;
+      --down: #c62828;
+    }
+    /* rails tinted so the three columns read as distinct surfaces */
+    :root[data-theme="light"] .term-watchlist,
+    :root[data-theme="light"] .term-quotes { background: var(--rail); }
+    :root[data-theme="light"] .quote-panel { background: var(--surface); }
+    :root[data-theme="light"] nav {
+      box-shadow: 0 1px 3px rgba(15,23,42,0.05);
+      position: relative; z-index: 10;
+    }
+    :root[data-theme="light"] .center-head { background: var(--surface); }
+    /* inset elements need a touch more definition on white */
+    :root[data-theme="light"] .prob-track,
+    :root[data-theme="light"] .metric-bar-track,
+    :root[data-theme="light"] .sl-track { border-color: #dde5ee; background: #eef2f7; }
+    :root[data-theme="light"] .verdict {
+      background: var(--rail); border: 1px solid var(--border);
+    }
+    :root[data-theme="light"] select { background-color: var(--surface); }
+    :root[data-theme="light"] .tb-btn { background: var(--surface); }
+    :root[data-theme="light"] .tb-btn:hover { background: var(--surface2); }
+    :root[data-theme="light"] .range-picker { background: var(--surface2); }
+    :root[data-theme="light"] .wl-row:hover,
+    :root[data-theme="light"] .ticker-row:hover { background: #eef2f7; }
+    /* result pills: darker washes so they read on a light surface */
+    :root[data-theme="light"] .pill.W { background: rgba(21,128,61,0.13); }
+    :root[data-theme="light"] .pill.D { background: rgba(100,116,139,0.15); }
+    :root[data-theme="light"] .pill.L { background: rgba(185,28,28,0.12); }
+    :root[data-theme="light"] .wl-row.is-home { background: rgba(37,99,235,0.09); }
+    :root[data-theme="light"] .wl-row.is-away { background: rgba(225,29,72,0.08); }
+    :root[data-theme="light"] .tag-chip { background: var(--surface); }
+    :root[data-theme="light"] .tag-chip.live { background: rgba(190,24,93,0.08); border-color: rgba(190,24,93,0.32); }
+    :root[data-theme="light"] .error-box { background: rgba(185,28,28,0.06); }
+    :root[data-theme="light"] .methodology code { background: var(--surface2); }
+    :root[data-theme="light"] .trend-end-dot { stroke: var(--surface); }
+    :root[data-theme="light"] .trend-gap { opacity: 0.10; }
+
+    /* ── Theme toggle ── */
+    .theme-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 30px; height: 26px; flex-shrink: 0;
+      background: var(--surface2); color: var(--muted);
+      border: 1px solid var(--border); border-radius: 7px;
+      cursor: pointer; font-size: 13px; line-height: 1;
+      transition: color .15s, border-color .15s;
+    }
+    .theme-btn:hover { color: var(--text); border-color: var(--border-strong); }
+    .theme-btn:focus-visible { outline: 1px solid var(--brand-border); }
 
     html, body { height: 100%; }
 
@@ -170,8 +246,8 @@
     }
     .wl-row:hover { background: var(--surface2); }
     .wl-row:focus-visible { outline: none; background: var(--surface2); }
-    .wl-row.is-home { background: rgba(2,132,199,0.12); border-left-color: var(--series-home); }
-    .wl-row.is-away { background: rgba(239,68,68,0.10); border-left-color: var(--series-away); }
+    .wl-row.is-home { background: rgba(59,130,246,0.13); border-left-color: var(--series-home); }
+    .wl-row.is-away { background: rgba(244,63,94,0.12); border-left-color: var(--series-away); }
     .wl-name { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
     .wl-name .n { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .wl-meta { display: flex; align-items: center; gap: 7px; }
@@ -540,6 +616,12 @@
     .trend-foot .up { color: var(--up); }
     .trend-foot .down { color: var(--down); }
 
+    .trend-axis { stroke: var(--border-strong); stroke-width: 1; }
+    .trend-tick { stroke: var(--border-strong); stroke-width: 1; }
+    .trend-axis-year {
+      font-family: 'JetBrains Mono', monospace; font-size: 8.5px;
+      fill: var(--muted); opacity: 0.65;
+    }
     .trend-marker { stroke-width: 1.5; }
     .trend-gap { opacity: 0.13; }
     .trend-baseline { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3,4; opacity: 0.5; }
@@ -703,7 +785,9 @@
       flex: 1; height: 7px; background: var(--surface2);
       border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
     }
-    .sl-fill { height: 100%; border-radius: 0 3px 3px 0; background: var(--muted); }
+    /* must be block: it's a <span> inside a non-flex parent, and inline
+       elements ignore width/height, which left every bar empty */
+    .sl-fill { display: block; height: 100%; border-radius: 0 3px 3px 0; background: var(--muted); }
     .sl-fill.home { background: var(--series-home); }
     .sl-fill.away { background: var(--series-away); }
     .sl-fill.draw { background: var(--draw); }

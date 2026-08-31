@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fulltime — EPL Match Predictor | Aaron Ho</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="terminal.css" />
+  <!-- not deferred: the inline page script constructs TrendChart directly -->
+  <script src="trend-chart.js"></script>
+</head>
+<body>
+
+  <div class="shell">
+
+    <!-- NAV -->
+    <nav>
+      <div class="nav-left">
+        <a href="index.html" class="nav-logo">Fulltime</a>
+        <div class="league-tabs" role="group" aria-label="League">
+          <a href="epl.html" class="league-tab is-on" aria-current="page">EPL</a>
+          <a href="nfl.html" class="league-tab">NFL</a>
+        </div>
+        <span class="nav-tagline">Match predictor · ratings rebuilt from real results on every visit</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <span class="term-tag">2026&#8288;-&#8288;27 Premier League</span>
+        <button type="button" class="theme-btn" id="theme-toggle"></button>
+      </div>
+    </nav>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <div id="loading-status">Loading match history…</div>
+    </div>
+
+    <div id="app" class="terminal" style="display:none;">
+
+      <!-- WATCHLIST -->
+      <div class="term-col term-watchlist">
+        <div class="panel-head">
+          <div class="term-title">Elo Watchlist</div>
+          <div class="term-tag">Tap = away side</div>
+        </div>
+        <div id="watchlist" class="panel-body scroll-y"></div>
+      </div>
+
+      <!-- CENTER -->
+      <div class="term-col term-center">
+
+        <div class="center-head">
+          <div class="symbol-bar">
+            <div>
+              <div class="symbol-teams"><span id="sym-home">—</span><span class="sv">vs</span><span id="sym-away">—</span></div>
+              <div class="symbol-sub" id="symbol-sub"></div>
+            </div>
+            <div class="symbol-price-wrap">
+              <div class="symbol-price" id="symbol-price">—</div>
+              <div class="symbol-price-label" id="symbol-price-label">Favored</div>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <div class="tb-btn" id="tb-swap">⇄ Swap sides</div>
+            <div class="tb-btn" id="tb-reset">↺ Reset</div>
+            <div class="tb-sep"></div>
+            <select id="home-select" style="flex:1 1 130px; width:auto; max-width:220px;" aria-label="Home team"></select>
+            <span class="vs" style="padding-top:0;">vs</span>
+            <select id="away-select" style="flex:1 1 130px; width:auto; max-width:220px;" aria-label="Away team"></select>
+            <div class="tb-sep"></div>
+            <select id="fixture-select" style="flex:1 1 200px; width:auto; max-width:280px;" aria-label="Upcoming fixture"></select>
+          </div>
+        </div>
+
+        <div class="center-body scroll-y">
+
+          <div class="center-section duo chart-duo">
+            <div class="chart-cell">
+              <div class="chart-head">
+                <div class="card-title" style="margin-bottom:0;" id="trend-title">Elo Rating</div>
+                <div class="range-picker" id="trend-range" role="group" aria-label="Chart range">
+                  <button type="button" class="range-btn" data-n="10">10</button>
+                  <button type="button" class="range-btn is-on" data-n="20">20</button>
+                  <button type="button" class="range-btn" data-n="40">40</button>
+                  <button type="button" class="range-btn" data-n="0">All</button>
+                </div>
+              </div>
+              <div class="chart-legend" id="trend-legend"></div>
+              <div class="trend-svg-box" id="trend-chart"></div>
+              <div class="trend-foot" id="trend-foot"></div>
+            </div>
+
+            <div>
+              <div class="card-title">Win Probability</div>
+              <div class="prob-row">
+                <div class="prob-label" id="label-home">Home</div>
+                <div class="prob-track"><div class="prob-fill home" id="bar-home" style="width:0%"></div></div>
+                <div class="prob-pct" id="pct-home">—</div>
+              </div>
+              <div class="prob-row">
+                <div class="prob-label">Draw</div>
+                <div class="prob-track"><div class="prob-fill draw" id="bar-draw" style="width:0%"></div></div>
+                <div class="prob-pct" id="pct-draw">—</div>
+              </div>
+              <div class="prob-row">
+                <div class="prob-label" id="label-away">Away</div>
+                <div class="prob-track"><div class="prob-fill away" id="bar-away" style="width:0%"></div></div>
+                <div class="prob-pct" id="pct-away">—</div>
+              </div>
+              <div class="verdict" id="verdict"></div>
+
+              <div class="scorelines" id="scorelines"></div>
+
+              <div class="stat-grid">
+                <div class="stat-col" id="stat-home"></div>
+                <div class="stat-col" id="stat-away"></div>
+              </div>
+              <div class="h2h-line" id="h2h"></div>
+            </div>
+          </div>
+
+          <div class="center-section">
+            <div class="metric-compare">
+              <div class="card-title">Form Comparison — Last 8 Matches</div>
+              <div class="chart-legend" id="metric-legend"></div>
+              <div id="metric-bars"></div>
+            </div>
+          </div>
+
+          <div class="center-section">
+            <div class="card-title">How This Works</div>
+            <div class="methodology" id="methodology"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- QUOTES / FIXTURES -->
+      <div class="term-col term-quotes">
+        <div class="panel-head">
+          <div class="term-title">Quote</div>
+        </div>
+        <div class="quote-panel">
+          <div class="quote-team" id="quote-team">—</div>
+          <div class="quote-price" id="quote-price">—</div>
+          <div class="quote-stats" id="quote-stats"></div>
+        </div>
+
+        <div class="panel-head">
+          <div class="term-title" id="week-title">Upcoming Fixtures</div>
+          <div class="term-tag live">Live</div>
+        </div>
+        <div id="week-list" class="panel-body scroll-y"></div>
+      </div>
+
+    </div>
+
+    <div id="error" style="display:none;" class="error-box"></div>
+  </div>
+
+  <script>
+  (async function () {
+    const SEASONS = ['2017-18','2018-19','2019-20','2020-21','2021-22','2022-23','2023-24','2024-25','2025-26','2026-27'];
+    const OPENFOOTBALL_BASE = 'https://raw.githubusercontent.com/openfootball/football.json/master';
+    const CACHE_KEY = 'epl-predictor-cache-v2';
+    const CACHE_TTL = 6 * 60 * 60 * 1000; // 6h
+    // Calibrated 2026-08-30 via calibrate_elo.py — walk-forward backtest over
+    // 3,050 matches (2018-19..2026-27, first season as warm-up), minimizing
+    // multiclass log-loss. See calibration-report.json for the full sweep.
+    const HOME_ADV = 50;
+    const K = 20;
+    const DEFAULT_RATING = 1500;
+    const REGRESS = 0.9; // fraction of rating gap kept across season boundaries
+    const DRAW_BASE = 0.28, DRAW_SLOPE = 0.0004, DRAW_FLOOR = 0.06, DRAW_CAP = 0.30;
+    const GOAL_W = 0.25, SHOT_W = 0.12, NUDGE_SCALE = 1.5, NUDGE_CAP = 0.10;
+
+    const loadingEl = document.getElementById('loading');
+    const loadingStatus = document.getElementById('loading-status');
+    const appEl = document.getElementById('app');
+    const errorEl = document.getElementById('error');
+
+    function showError(msg) {
+      loadingEl.style.display = 'none';
+      errorEl.style.display = 'block';
+      errorEl.textContent = msg;
+    }
+
+    async function loadSeasonData() {
+      try {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Date.now() - parsed.ts < CACHE_TTL && parsed.seasons && parsed.seasons.length) {
+            return parsed.seasons;
+          }
+        }
+      } catch (e) { /* ignore bad cache */ }
+
+      const seasons = [];
+      for (let i = 0; i < SEASONS.length; i++) {
+        const s = SEASONS[i];
+        loadingStatus.textContent = `Loading ${s} season (${i + 1}/${SEASONS.length})…`;
+        try {
+          const r = await fetch(`${OPENFOOTBALL_BASE}/${s}/en.1.json`);
+          if (r.ok) {
+            const d = await r.json();
+            const matches = (d.matches || []).map(m => Object.assign({}, m, {
+              team1: canonicalTeam(m.team1), team2: canonicalTeam(m.team2)
+            }));
+            seasons.push({ season: s, matches });
+          }
+        } catch (e) { /* skip failed season */ }
+      }
+      if (!seasons.length) throw new Error('no season data loaded');
+
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), seasons }));
+      } catch (e) { /* storage full / unavailable, fine */ }
+
+      return seasons;
+    }
+
+    async function loadShotsData() {
+      try {
+        const r = await fetch('epl-shots.json');
+        if (!r.ok) return null;
+        const d = await r.json();
+        // the snapshot stores the "… FC" spellings; fold to the same canonical keys
+        (d.matches || []).forEach(m => {
+          m.home = canonicalTeam(m.home);
+          m.away = canonicalTeam(m.away);
+        });
+        return d;
+      } catch (e) { return null; }
+    }
+
+    // openfootball renamed every club in 2020-21 ("Manchester City" became
+    // "Manchester City FC"). Without folding those together, 13 clubs are two
+    // separate teams and their ratings reset at that boundary.
+    function canonicalTeam(name) {
+      const n = String(name || '').trim();
+      const m = n.match(/^(.*?)\s+(?:FC|AFC)$/i);
+      return m ? m[1] : n;
+    }
+
+    function dayNum(dateStr) {
+      const t = Date.parse(dateStr + 'T00:00:00Z');
+      return Number.isNaN(t) ? 0 : t / 86400000;
+    }
+
+    function finalScore(m) {
+      // openfootball.json mostly uses {ht:[..], ft:[h,a]}, but some rows (seen in
+      // 2025-26) give the final score directly as score:[h,a] with no ft key.
+      if (!m.score) return null;
+      if (Array.isArray(m.score.ft)) return m.score.ft;
+      if (Array.isArray(m.score)) return m.score;
+      return null;
+    }
+
+    function movMultiplier(gd) {
+      if (gd <= 1) return 1;
+      if (gd === 2) return 1.5;
+      return (11 + gd) / 8;
+    }
+
+    function computeElo(seasonsData) {
+      const ratings = {};
+      const history = {}; // team -> chronological [{date, opponent, venue, gf, ga, result, season}]
+      const ratingTrail = {}; // team -> chronological [{date, rating}] snapshot after each match
+
+      function getRating(t) {
+        return Object.prototype.hasOwnProperty.call(ratings, t) ? ratings[t] : DEFAULT_RATING;
+      }
+
+      seasonsData.forEach((season, idx) => {
+        if (idx > 0) {
+          Object.keys(ratings).forEach(t => {
+            ratings[t] = DEFAULT_RATING + (ratings[t] - DEFAULT_RATING) * REGRESS;
+          });
+        }
+        const matches = season.matches
+          .filter(m => finalScore(m))
+          .slice()
+          .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+        matches.forEach(m => {
+          const home = m.team1, away = m.team2;
+          const [hg, ag] = finalScore(m);
+          const Rh = getRating(home), Ra = getRating(away);
+          const dr = Rh - Ra + HOME_ADV;
+          const We = 1 / (1 + Math.pow(10, -dr / 400));
+          const actual = hg > ag ? 1 : hg < ag ? 0 : 0.5;
+          const mult = movMultiplier(Math.abs(hg - ag));
+          const delta = K * mult * (actual - We);
+
+          ratings[home] = Rh + delta;
+          ratings[away] = Ra - delta;
+
+          // carry match context so the chart can explain each move
+          (ratingTrail[home] = ratingTrail[home] || []).push({
+            date: m.date, rating: ratings[home], delta, opp: away, venue: 'home',
+            gf: hg, ga: ag, result: hg > ag ? 'W' : hg < ag ? 'L' : 'D'
+          });
+          (ratingTrail[away] = ratingTrail[away] || []).push({
+            date: m.date, rating: ratings[away], delta: -delta, opp: home, venue: 'away',
+            gf: ag, ga: hg, result: ag > hg ? 'W' : ag < hg ? 'L' : 'D'
+          });
+
+          [[home, away, hg, ag, 'home'], [away, home, ag, hg, 'away']].forEach(([team, opp, gf, ga, venue]) => {
+            (history[team] = history[team] || []).push({
+              date: m.date, opponent: opp, venue, gf, ga,
+              result: gf > ga ? 'W' : gf < ga ? 'L' : 'D',
+              season: season.season
+            });
+          });
+        });
+      });
+
+      Object.keys(history).forEach(t => history[t].sort((a, b) => (a.date || '').localeCompare(b.date || '')));
+
+      return { ratings, history, ratingTrail };
+    }
+
+    // ── Dixon-Coles ────────────────────────────────────────────────────────
+    // Each team gets an attack and a defence strength; goals are Poisson:
+    //   home ~ Poisson(exp(atk[H] - def[A] + gamma)),  away ~ Poisson(exp(atk[A] - def[H]))
+    // plus Dixon-Coles' correction for low scores, which plain Poisson gets wrong.
+    // Fitted by weighted maximum likelihood with exponential time decay.
+    const DC_HALF_LIFE = 200, DC_HISTORY_DAYS = 1000, DC_ITERS = 320, DC_MAX_GOALS = 8;
+
+    function dcTau(x, y, lh, la, rho) {
+      if (x === 0 && y === 0) return 1 - lh * la * rho;
+      if (x === 0 && y === 1) return 1 + lh * rho;
+      if (x === 1 && y === 0) return 1 + la * rho;
+      if (x === 1 && y === 1) return 1 - rho;
+      return 1;
+    }
+
+    function fitDixonColes(matches, nowDay) {
+      const decay = Math.log(2) / DC_HALF_LIFE;
+      const data = [];
+      for (const m of matches) {
+        const age = nowDay - m.day;
+        if (age > DC_HISTORY_DAYS) continue;
+        data.push({ w: Math.exp(-decay * age), h: m.home, a: m.away, hg: m.hg, ag: m.ag });
+      }
+      const atk = Object.create(null), dfn = Object.create(null);
+      const teams = [];
+      for (const d of data) {
+        for (const t of [d.h, d.a]) {
+          if (!(t in atk)) { atk[t] = 0; dfn[t] = 0; teams.push(t); }
+        }
+      }
+      let gamma = 0.25, rho = -0.05;
+      if (!data.length || !teams.length) return { atk, dfn, gamma, rho };
+
+      const n = data.length;
+      for (let it = 0; it < DC_ITERS; it++) {
+        const gAtk = Object.create(null), gDfn = Object.create(null);
+        for (const t of teams) { gAtk[t] = 0; gDfn[t] = 0; }
+        let gGam = 0;
+        for (const d of data) {
+          const lh = Math.min(Math.exp(atk[d.h] - dfn[d.a] + gamma), 8);
+          const la = Math.min(Math.exp(atk[d.a] - dfn[d.h]), 8);
+          const rh = d.w * (d.hg - lh), ra = d.w * (d.ag - la);
+          gAtk[d.h] += rh; gDfn[d.a] -= rh;
+          gAtk[d.a] += ra; gDfn[d.h] -= ra;
+          gGam += rh;
+        }
+        const step = 0.5 / n;
+        for (const t of teams) { atk[t] += step * gAtk[t]; dfn[t] += step * gDfn[t]; }
+        gamma += step * gGam;
+        // identifiability: centre both scales
+        let ma = 0, md = 0;
+        for (const t of teams) { ma += atk[t]; md += dfn[t]; }
+        ma /= teams.length; md /= teams.length;
+        for (const t of teams) { atk[t] -= ma; dfn[t] -= md; }
+      }
+
+      // line-search rho on the low-score cells it actually affects
+      let best = rho, bestLL = -Infinity;
+      for (let c = -0.18; c <= 0.04; c += 0.02) {
+        let ll = 0, ok = true;
+        for (const d of data) {
+          if (d.hg > 1 || d.ag > 1) continue;
+          const lh = Math.min(Math.exp(atk[d.h] - dfn[d.a] + gamma), 8);
+          const la = Math.min(Math.exp(atk[d.a] - dfn[d.h]), 8);
+          const t = dcTau(d.hg, d.ag, lh, la, c);
+          if (t <= 0) { ok = false; break; }
+          ll += d.w * Math.log(t);
+        }
+        if (ok && ll > bestLL) { bestLL = ll; best = c; }
+      }
+      return { atk, dfn, gamma, rho: best };
+    }
+
+    function dcLambdas(dc, home, away) {
+      const ah = dc.atk[home] ?? 0, dh = dc.dfn[home] ?? 0;
+      const aa = dc.atk[away] ?? 0, da = dc.dfn[away] ?? 0;
+      return [Math.min(Math.exp(ah - da + dc.gamma), 8), Math.min(Math.exp(aa - dh), 8)];
+    }
+
+    // Full scoreline distribution -> outcome probabilities + likeliest scores
+    function dcPredict(dc, home, away) {
+      const [lh, la] = dcLambdas(dc, home, away);
+      const pois = (lam) => {
+        const out = []; let f = 1;
+        for (let k = 0; k <= DC_MAX_GOALS; k++) {
+          if (k > 0) f *= k;
+          out.push(Math.exp(-lam) * Math.pow(lam, k) / f);
+        }
+        return out;
+      };
+      const ph = pois(lh), pa = pois(la);
+      let H = 0, D = 0, A = 0;
+      const grid = [];
+      for (let x = 0; x <= DC_MAX_GOALS; x++) {
+        for (let y = 0; y <= DC_MAX_GOALS; y++) {
+          const p = Math.max(ph[x] * pa[y] * dcTau(x, y, lh, la, dc.rho), 0);
+          grid.push({ x, y, p });
+          if (x > y) H += p; else if (x === y) D += p; else A += p;
+        }
+      }
+      const tot = H + D + A || 1;
+      grid.forEach(g => { g.p /= tot; });
+      grid.sort((a, b) => b.p - a.p);
+      return { homeWin: H / tot, draw: D / tot, awayWin: A / tot, lh, la, scorelines: grid.slice(0, 5) };
+    }
+
+    function recentGoalStats(history, team, n) {
+      const h = history[team] || [];
+      const recent = h.slice(-n);
+      if (!recent.length) return null;
+      const gf = recent.reduce((s, m) => s + m.gf, 0) / recent.length;
+      const ga = recent.reduce((s, m) => s + m.ga, 0) / recent.length;
+      return { gf, ga, n: recent.length };
+    }
+
+    function recentShotStats(shotsData, team, n) {
+      if (!shotsData) return null;
+      const matches = shotsData.matches.filter(m => m.home === team || m.away === team).slice(-n);
+      if (!matches.length) return null;
+      let stFor = 0, stAgainst = 0, count = 0;
+      matches.forEach(m => {
+        const isHome = m.home === team;
+        const st = isHome ? m.hst : m.ast;
+        const sta = isHome ? m.ast : m.hst;
+        if (st == null || sta == null) return;
+        stFor += st; stAgainst += sta; count++;
+      });
+      if (!count) return null;
+      return { stFor: stFor / count, stAgainst: stAgainst / count, n: count };
+    }
+
+    function leagueAverages(history, teams, n) {
+      let gfSum = 0, gaSum = 0, cnt = 0;
+      teams.forEach(t => {
+        const s = recentGoalStats(history, t, n);
+        if (s) { gfSum += s.gf; gaSum += s.ga; cnt++; }
+      });
+      return cnt ? { gf: gfSum / cnt, ga: gaSum / cnt } : { gf: 1.4, ga: 1.4 };
+    }
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    // Outcome probabilities come from Dixon-Coles. Elo ratings are still carried
+    // through for the watchlist and the rating-trend chart, where a single number
+    // evolving over time is exactly what's wanted.
+    function predict(ratings, history, shotsData, leagueAvg, home, away) {
+      const Rh = ratings[home] ?? DEFAULT_RATING;
+      const Ra = ratings[away] ?? DEFAULT_RATING;
+
+      const N = 8;
+      const gHome = recentGoalStats(history, home, N);
+      const gAway = recentGoalStats(history, away, N);
+      const sHome = recentShotStats(shotsData, home, N);
+      const sAway = recentShotStats(shotsData, away, N);
+
+      const d = dcPredict(dcModel, home, away);
+      return {
+        homeWin: d.homeWin, draw: d.draw, awayWin: d.awayWin,
+        lh: d.lh, la: d.la, scorelines: d.scorelines,
+        Rh, Ra, gHome, gAway, sHome, sAway
+      };
+    }
+
+    function formPills(history, team, n, size) {
+      const h = (history[team] || []).slice(-n);
+      const cls = size ? `pill ${size}` : 'pill';
+      return h.map(m => {
+        const venue = m.venue === 'home' ? 'vs' : '@';
+        const score = m.venue === 'home' ? `${m.gf}-${m.ga}` : `${m.ga}-${m.gf}`;
+        const title = `${m.date} · ${venue} ${m.opponent} · ${score} (${m.season})`;
+        return `<div class="${cls} ${m.result}" title="${title}">${m.result}</div>`;
+      }).join('');
+    }
+
+    function formSpanNote(history, team, n) {
+      const h = (history[team] || []).slice(-n);
+      if (!h.length) return '';
+      const seasons = new Set(h.map(m => m.season));
+      if (seasons.size <= 1) return '';
+      const oldest = h[0].season, newest = h[h.length - 1].season;
+      return oldest === newest ? '' : ` (spans ${oldest} → ${newest})`;
+    }
+
+    // Chart lives in trend-chart.js so both league tabs share one implementation.
+    let trendChart = null;
+    function renderTrendChart(elo, home, away) {
+      if (!trendChart) {
+        trendChart = new TrendChart({
+          box: document.getElementById('trend-chart'),
+          legend: document.getElementById('trend-legend'),
+          foot: document.getElementById('trend-foot'),
+          title: document.getElementById('trend-title'),
+          rangeWrap: document.getElementById('trend-range'),
+          unit: 'Matches',
+          baseline: DEFAULT_RATING
+        });
+      }
+      trendChart.render(elo.ratingTrail, home, away);
+    }
+
+    function metricBarRow(label, homeVal, awayVal, decimals) {
+      const max = Math.max(homeVal || 0, awayVal || 0, 0.01) * 1.15;
+      const hPct = clamp(((homeVal || 0) / max) * 100, 0, 100);
+      const aPct = clamp(((awayVal || 0) / max) * 100, 0, 100);
+      const fmt = v => (v == null ? '—' : v.toFixed(decimals));
+      return `
+        <div class="metric-group">
+          <div class="metric-label">${label}</div>
+          <div class="metric-bar-row">
+            <div class="metric-bar-track"><div class="metric-bar-fill home" style="width:${hPct}%"></div></div>
+            <div class="metric-bar-val">${fmt(homeVal)}</div>
+          </div>
+          <div class="metric-bar-row">
+            <div class="metric-bar-track"><div class="metric-bar-fill away" style="width:${aPct}%"></div></div>
+            <div class="metric-bar-val">${fmt(awayVal)}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderMetricBars(home, away, p) {
+      document.getElementById('metric-legend').innerHTML = `
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-home)"></span>${home}</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-away)"></span>${away}</div>
+      `;
+      const g = p.gHome, ga = p.gAway, s = p.sHome, sa = p.sAway;
+      document.getElementById('metric-bars').innerHTML =
+        metricBarRow('Goals scored / game (last 8)', g && g.gf, ga && ga.gf, 2) +
+        metricBarRow('Goals conceded / game', g && g.ga, ga && ga.ga, 2) +
+        metricBarRow('Shots on target / game', s && s.stFor, sa && sa.stFor, 1) +
+        metricBarRow('Shots on target conceded / game', s && s.stAgainst, sa && sa.stAgainst, 1);
+    }
+
+    function h2hSummary(history, home, away) {
+      const h = (history[home] || []).filter(m => m.opponent === away).slice(-5);
+      if (!h.length) return 'No recent head-to-head meetings in the loaded history.';
+      let hw = 0, aw = 0, d = 0;
+      h.forEach(m => {
+        if (m.result === 'D') d++;
+        else if ((m.venue === 'home' && m.result === 'W') || (m.venue === 'away' && m.result === 'L')) hw++;
+        else aw++;
+      });
+      return `Last ${h.length} meetings: ${hw}W ${home}, ${d}D, ${aw}W ${away}.`;
+    }
+
+    function renderWatchlist() {
+      const home = homeSelect.value, away = awaySelect.value;
+      const wlEl = document.getElementById('watchlist');
+      wlEl.innerHTML = ranked.map((r, i) => {
+        const delta = ratingDelta(r.team);
+        const deltaCls = delta == null ? 'flat' : delta > 0.5 ? 'up' : delta < -0.5 ? 'down' : 'flat';
+        const deltaTxt = delta == null ? '—' : (delta > 0 ? '+' : '') + Math.round(delta);
+        const rowCls = r.team === home ? 'is-home' : (r.team === away ? 'is-away' : '');
+        const tag = r.team === home ? ' · HOME' : (r.team === away ? ' · AWAY' : '');
+        return `
+          <div class="wl-row ${rowCls}" data-team="${r.team}" tabindex="0" role="button">
+            <div class="wl-name">
+              <span class="n">${r.team}</span>
+              <span class="wl-meta">
+                <span class="rank">#${i + 1}${tag}</span>
+                <span class="wl-form">${formPills(elo.history, r.team, 5, 'tiny')}</span>
+              </span>
+            </div>
+            <div class="wl-right">
+              <div class="wl-rating">${Math.round(r.rating)}</div>
+              <div class="wl-delta ${deltaCls}">${deltaTxt}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      wlEl.querySelectorAll('.wl-row').forEach(row => {
+        const activate = () => {
+          const team = row.getAttribute('data-team');
+          awaySelect.value = team;
+          fixtureSelect.value = '';
+          render();
+        };
+        row.addEventListener('click', activate);
+        row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } });
+      });
+    }
+
+    // ── Main ──
+    let seasonsData, shotsData, elo, dcModel, teams, currentSeason, upcomingFixtures, leagueAvg;
+
+    try {
+      loadingStatus.textContent = 'Loading match history…';
+      [seasonsData, shotsData] = await Promise.all([loadSeasonData(), loadShotsData()]);
+
+      elo = computeElo(seasonsData);
+      currentSeason = seasonsData[seasonsData.length - 1];
+      teams = Array.from(new Set(currentSeason.matches.flatMap(m => [m.team1, m.team2]))).sort();
+      upcomingFixtures = currentSeason.matches
+        .filter(m => !finalScore(m))
+        .slice()
+        .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      leagueAvg = leagueAverages(elo.history, teams, 8);
+
+      loadingStatus.textContent = 'Fitting Dixon-Coles model…';
+      const played = [];
+      let latestDay = 0;
+      seasonsData.forEach(s => s.matches.forEach(m => {
+        const ft = finalScore(m);
+        if (!ft || !m.date) return;
+        const day = dayNum(m.date);
+        latestDay = Math.max(latestDay, day);
+        played.push({ day, home: m.team1, away: m.team2, hg: ft[0], ag: ft[1] });
+      }));
+      dcModel = fitDixonColes(played, latestDay);
+    } catch (e) {
+      showError('Could not load Premier League match data right now (the data source may be temporarily unreachable). Try refreshing in a bit.');
+      return;
+    }
+
+    const ranked = teams
+      .map(t => ({ team: t, rating: elo.ratings[t] ?? DEFAULT_RATING }))
+      .sort((a, b) => b.rating - a.rating);
+
+    function ratingDelta(team) {
+      const trail = elo.ratingTrail[team] || [];
+      if (trail.length < 2) return null;
+      return trail[trail.length - 1].rating - trail[trail.length - 2].rating;
+    }
+
+    const homeSelect = document.getElementById('home-select');
+    const awaySelect = document.getElementById('away-select');
+    const fixtureSelect = document.getElementById('fixture-select');
+
+    teams.forEach(t => {
+      homeSelect.appendChild(new Option(t, t));
+      awaySelect.appendChild(new Option(t, t));
+    });
+    homeSelect.value = teams[0];
+    awaySelect.value = teams[1] || teams[0];
+
+    fixtureSelect.appendChild(new Option('— manual selection —', ''));
+    upcomingFixtures.slice(0, 40).forEach((m, i) => {
+      const label = `${m.date} — ${m.team1} vs ${m.team2}`;
+      fixtureSelect.appendChild(new Option(label, i));
+    });
+
+    fixtureSelect.addEventListener('change', () => {
+      if (fixtureSelect.value === '') return;
+      const m = upcomingFixtures[Number(fixtureSelect.value)];
+      homeSelect.value = m.team1;
+      awaySelect.value = m.team2;
+      render();
+    });
+    homeSelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
+    awaySelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
+
+    // The chart is drawn at its box's pixel size, so redraw whenever that box
+    // changes — initial layout settling, window resize, panel reflow.
+    (function watchChartSize() {
+      const box = document.getElementById('trend-chart');
+      if (!box || typeof ResizeObserver === 'undefined') return;
+      let lastW = 0, lastH = 0, pending = null;
+      new ResizeObserver(entries => {
+        const r = entries[0].contentRect;
+        const w = Math.round(r.width), h = Math.round(r.height);
+        if (Math.abs(w - lastW) < 2 && Math.abs(h - lastH) < 2) return;
+        lastW = w; lastH = h;
+        clearTimeout(pending);
+        pending = setTimeout(() => {
+          if (elo) renderTrendChart(elo, homeSelect.value, awaySelect.value);
+        }, 60);
+      }).observe(box);
+    })();
+
+    document.getElementById('tb-swap').addEventListener('click', () => {
+      const h = homeSelect.value;
+      homeSelect.value = awaySelect.value;
+      awaySelect.value = h;
+      fixtureSelect.value = '';
+      render();
+    });
+    document.getElementById('tb-reset').addEventListener('click', () => {
+      homeSelect.value = teams[0];
+      awaySelect.value = teams[1] || teams[0];
+      fixtureSelect.value = '';
+      render();
+    });
+
+    function render() {
+      const home = homeSelect.value, away = awaySelect.value;
+      const p = predict(elo.ratings, elo.history, shotsData, leagueAvg, home, away);
+
+      document.getElementById('label-home').textContent = home;
+      document.getElementById('label-away').textContent = away;
+      document.getElementById('bar-home').style.width = (p.homeWin * 100).toFixed(1) + '%';
+      document.getElementById('bar-draw').style.width = (p.draw * 100).toFixed(1) + '%';
+      document.getElementById('bar-away').style.width = (p.awayWin * 100).toFixed(1) + '%';
+      document.getElementById('pct-home').textContent = Math.round(p.homeWin * 100) + '%';
+      document.getElementById('pct-draw').textContent = Math.round(p.draw * 100) + '%';
+      document.getElementById('pct-away').textContent = Math.round(p.awayWin * 100) + '%';
+
+      const fav = p.homeWin > p.awayWin ? home : away;
+      const favPct = Math.round(Math.max(p.homeWin, p.awayWin) * 100);
+      document.getElementById('verdict').innerHTML = `
+        <div class="verdict-main">
+          <span class="verdict-team">${fav}</span>
+          <span class="pill-stat">FAVORED · ${favPct}%</span>
+        </div>
+        <div class="verdict-sub">Elo ${Math.round(p.Rh)} vs ${Math.round(p.Ra)} · Δ ${Math.round(p.Rh - p.Ra)}</div>
+      `;
+
+      // Symbol header
+      document.getElementById('sym-home').textContent = home;
+      document.getElementById('sym-away').textContent = away;
+      document.getElementById('symbol-sub').innerHTML =
+        `ELO <b>${Math.round(p.Rh)}</b> · <b>${Math.round(p.Ra)}</b>` +
+        `&nbsp;&nbsp;HOME ADV <b>+${HOME_ADV}</b>` +
+        `&nbsp;&nbsp;GAP <b>${Math.round(p.Rh - p.Ra)}</b>`;
+      document.getElementById('symbol-price').textContent = favPct + '%';
+      document.getElementById('symbol-price-label').textContent = `${fav} favored`;
+
+      // Quote panel
+      document.getElementById('quote-team').textContent = fav;
+      document.getElementById('quote-price').textContent = favPct + '%';
+      document.getElementById('quote-stats').innerHTML = `
+        <div class="quote-stat-row"><span class="k">${home} Elo</span><span class="v">${Math.round(p.Rh)}</span></div>
+        <div class="quote-stat-row"><span class="k">${away} Elo</span><span class="v">${Math.round(p.Ra)}</span></div>
+        <div class="quote-stat-row"><span class="k">Rating gap</span><span class="v">${Math.round(p.Rh - p.Ra)}</span></div>
+        <div class="quote-stat-row"><span class="k">Draw probability</span><span class="v">${Math.round(p.draw * 100)}%</span></div>
+      `;
+
+      renderWatchlist();
+
+      // Likeliest scorelines — only Dixon-Coles can produce these
+      const slEl = document.getElementById('scorelines');
+      if (slEl && p.scorelines) {
+        const top = p.scorelines[0].p || 1;
+        slEl.innerHTML = `
+          <div class="sl-head">Likeliest scorelines</div>
+          ${p.scorelines.map(s => {
+            const cls = s.x > s.y ? 'home' : (s.x < s.y ? 'away' : 'draw');
+            return `
+              <div class="sl-row">
+                <span class="sl-score ${cls}">${s.x}–${s.y}</span>
+                <span class="sl-track"><span class="sl-fill ${cls}" style="width:${(s.p / top * 100).toFixed(1)}%"></span></span>
+                <span class="sl-pct">${(s.p * 100).toFixed(1)}%</span>
+              </div>`;
+          }).join('')}
+          <div class="sl-xg">Expected goals&nbsp; ${home} ${p.lh.toFixed(2)} · ${away} ${p.la.toFixed(2)}</div>
+        `;
+      }
+
+      function statBlock(team) {
+        return `
+          <div class="stat-team">${team}</div>
+          <div style="font-size:11px;color:var(--muted);">Recent form${formSpanNote(elo.history, team, 5)}</div>
+          <div class="form-pills">${formPills(elo.history, team, 5)}</div>
+        `;
+      }
+      document.getElementById('stat-home').innerHTML = statBlock(home);
+      document.getElementById('stat-away').innerHTML = statBlock(away);
+      document.getElementById('h2h').textContent = h2hSummary(elo.history, home, away);
+
+      renderTrendChart(elo, home, away);
+      renderMetricBars(home, away, p);
+    }
+
+    // This week's fixtures
+    function renderWeekList() {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const weekEnd = new Date();
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      const weekEndStr = weekEnd.toISOString().slice(0, 10);
+
+      const remaining = upcomingFixtures.filter(m => m.date >= todayStr);
+      const thisWeek = remaining.filter(m => m.date <= weekEndStr);
+
+      // The rail scrolls internally, so always give it enough rows to fill the
+      // column — this week's fixtures first, topped up from what follows.
+      const MIN_ROWS = 14;
+      const list = thisWeek.length >= MIN_ROWS ? thisWeek : remaining.slice(0, Math.max(MIN_ROWS, thisWeek.length));
+
+      document.getElementById('week-title').textContent = thisWeek.length
+        ? "This Week & Next"
+        : 'Upcoming Fixtures';
+
+      const listEl = document.getElementById('week-list');
+      if (!list.length) {
+        listEl.innerHTML = '<div class="week-empty">No scheduled fixtures found in the loaded season data.</div>';
+        return;
+      }
+
+      listEl.innerHTML = list.map((m, i) => {
+        const p = predict(elo.ratings, elo.history, shotsData, leagueAvg, m.team1, m.team2);
+        const hPct = Math.round(p.homeWin * 100);
+        const dPct = Math.round(p.draw * 100);
+        const aPct = Math.round(p.awayWin * 100);
+        const dateLabel = m.time ? `${m.date} · ${m.time}` : m.date;
+        const favTeam = p.homeWin >= p.awayWin ? m.team1 : m.team2;
+        const favPct = Math.max(hPct, aPct);
+        const isToday = m.date === todayStr;
+        return `
+          <button type="button" class="ticker-row" data-idx="${upcomingFixtures.indexOf(m)}">
+            <div class="ticker-top">
+              <span class="ticker-date">${isToday ? 'TODAY' : dateLabel}</span>
+              <span class="ticker-fav">${favTeam} ${favPct}%</span>
+            </div>
+            <div class="ticker-matchup">${m.team1}<span style="color:var(--muted);font-weight:400;"> vs </span>${m.team2}</div>
+            <div class="week-stack" style="margin-top:6px;">
+              <div class="week-seg home" style="width:${hPct}%"></div>
+              <div class="week-seg draw" style="width:${dPct}%"></div>
+              <div class="week-seg away" style="width:${aPct}%"></div>
+            </div>
+          </button>
+        `;
+      }).join('');
+
+      listEl.querySelectorAll('.ticker-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const idx = Number(row.getAttribute('data-idx'));
+          const m = upcomingFixtures[idx];
+          homeSelect.value = m.team1;
+          awaySelect.value = m.team2;
+          fixtureSelect.value = idx < 40 ? String(idx) : '';
+          render();
+          // Centre column scrolls internally in the app shell — reset it to the top.
+          const body = document.querySelector('.center-body');
+          if (body) body.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+      });
+    }
+
+    // Methodology footer
+    const shotsGenerated = shotsData ? shotsData.generated : null;
+    document.getElementById('methodology').innerHTML = `
+      Predictions come from a <b>Dixon-Coles</b> model. Every club gets a separate attack and
+      defence strength, and goals are modelled as Poisson —
+      <code>home ~ Poisson(exp(atk⁠−⁠def + γ))</code> — with Dixon-Coles' correction for
+      low-scoring games, which plain Poisson gets wrong. It's fitted in your browser by weighted
+      maximum likelihood, with older matches decayed (200-day half-life) so current form counts
+      for more. Because it models goals rather than just win/draw/loss, it produces a full
+      scoreline distribution — that's where the likeliest-scorelines panel and the expected-goals
+      figures come from.
+      <br><br>
+      The <b>Elo rating</b> shown in the watchlist and the trend chart is a separate, simpler
+      measure kept because a single number evolving over time is exactly what a rating chart
+      wants: teams start at 1500, update after each match with a goal-margin multiplier and a
+      +${HOME_ADV}-point home advantage, and regress ${Math.round((1 - REGRESS) * 100)}% toward the
+      mean between seasons for squad turnover. It ranks teams; it no longer sets the odds.
+      <br><br>
+      <b>How accurate is it?</b> On 770 matches from 2024-25 onward — held out of all tuning, so
+      this is the honest number — it calls <b>50.4%</b> of results correctly (1.005 log-loss).
+      For scale: always guessing the league's base rates gets 42.1% (1.082), and the betting
+      market itself only manages 51.9% (0.993) on the same matches. So it captures most of the
+      signal the market does, and football is simply not very predictable.
+      <br><br>
+      Worth being straight about: Dixon-Coles is <i>not</i> measurably more accurate here than the
+      Elo model it replaced (1.005 vs 1.007 log-loss — a paired test gives t = 0.4, well inside
+      noise). It was adopted because it models goals rather than collapsing each match to a single
+      result, which is what makes scoreline probabilities possible at all. Run
+      <code>dixon_coles.py</code> and <code>evaluate.py</code> to reproduce both.
+      <br><br>
+      Its probabilities are well calibrated, which matters more than raw accuracy: across every
+      confidence band, things it calls 20% / 50% / 80% likely happen about 24% / 55% / 83% of the
+      time.
+      <br><br>
+      Match results and fixtures load live from
+      <code>openfootball/football.json</code> (${SEASONS[0]}–${SEASONS[SEASONS.length - 1]}, cached locally for 6h).
+      Shots data comes from a periodic snapshot${shotsGenerated ? ` generated ${shotsGenerated}` : ''}
+      (football-data.co.uk doesn't allow live browser fetches, so this layer updates less often than the rest).
+      Possession isn't included — no free data source publishes it.
+    `;
+
+    // theme toggle — SVG colours are baked in at draw time, so redraw on change
+    if (window.FulltimeTheme) {
+      window.FulltimeTheme.mount(document.getElementById('theme-toggle'));
+      window.onFulltimeThemeChange = () => { if (elo) renderTrendChart(elo, homeSelect.value, awaySelect.value); };
+    }
+
+    render();
+    renderWeekList();
+    loadingEl.style.display = 'none';
+    appEl.style.display = 'grid';
+  })();
+  </script>
+</body>
+</html>

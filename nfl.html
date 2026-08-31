@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="theme.js"></script>
   <link rel="stylesheet" href="terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
   <script src="trend-chart.js"></script>
@@ -21,12 +22,15 @@
       <div class="nav-left">
         <a href="index.html" class="nav-logo">Fulltime</a>
         <div class="league-tabs" role="group" aria-label="League">
-          <a href="index.html" class="league-tab">EPL</a>
+          <a href="epl.html" class="league-tab">EPL</a>
           <a href="nfl.html" class="league-tab is-on" aria-current="page">NFL</a>
         </div>
         <span class="nav-tagline">Game predictor · Elo ratings rebuilt from every game since 1999</span>
       </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
       <span class="term-tag" id="season-tag">NFL</span>
+        <button type="button" class="theme-btn" id="theme-toggle"></button>
+      </div>
     </nav>
 
     <div id="loading" class="loading">
@@ -663,6 +667,12 @@
       <code>nflverse/nfldata</code> (${FIRST_SEASON}–present, cached locally for 6h). That's the same
       dataset <code>nflreadpy</code> downloads; reading it directly means this runs in the browser with
       no build step. Run <code>nfl_model.py</code> to reproduce the calibration.`;
+
+    // theme toggle — SVG colours are baked in at draw time, so redraw on change
+    if (window.FulltimeTheme) {
+      window.FulltimeTheme.mount(document.getElementById('theme-toggle'));
+      window.onFulltimeThemeChange = () => { if (elo) renderTrendChart(elo, homeSelect.value, awaySelect.value); };
+    }
 
     render();
     renderWeekList();

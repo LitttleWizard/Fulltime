@@ -89,7 +89,7 @@
     const m = box.getBoundingClientRect();
     const W = Math.max(340, Math.round(m.width) || 560);
     const H = Math.max(220, Math.round(m.height) || 300);
-    const PAD_L = 44, PAD_R = 46, PAD_T = 16, PAD_B = 24;
+    const PAD_L = 44, PAD_R = 46, PAD_T = 16, PAD_B = 40;   // PAD_B leaves room for the x axis
     const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
 
     const all = th.concat(ta).map(p => p.rating);
@@ -109,13 +109,51 @@
     const path = (s, off) => s.map((p, i) =>
       `${i === 0 ? 'M' : 'L'} ${x(i + off).toFixed(1)} ${y(p.rating).toFixed(1)}`).join(' ');
 
-    // gridlines
+    // gridlines + y axis
     const grid = [];
     for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
       const gy = y(v);
       grid.push(`<line class="trend-gridline" x1="${PAD_L}" x2="${W - PAD_R}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"/>`);
       grid.push(`<text class="trend-axis-label" x="${PAD_L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end">${Math.round(v)}</text>`);
     }
+
+    // ── X axis: dated ticks across the window ──────────────────────────────
+    // Both series are right-aligned to the most recent game, so index -> date
+    // comes from whichever series covers that slot.
+    const dateAt = i => {
+      const p = th[i - hOff] || ta[i - aOff];
+      return p && p.date ? p.date : null;
+    };
+    const fmtTick = d => {
+      const parts = String(d).split('-');
+      if (parts.length < 3) return d;
+      const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+parts[1] - 1] || '';
+      return `${mon} ${+parts[2]}`;
+    };
+    const axis = [
+      `<line class="trend-axis" x1="${PAD_L}" x2="${W - PAD_R}" y1="${(PAD_T + plotH).toFixed(1)}" y2="${(PAD_T + plotH).toFixed(1)}"/>`
+    ];
+    // aim for a tick roughly every 90px, and always label both ends
+    const want = clamp(Math.floor(plotW / 90), 2, 7);
+    const stride = Math.max(1, Math.round((maxLen - 1) / (want - 1)));
+    const ticks = new Set();
+    for (let i = 0; i < maxLen; i += stride) ticks.add(i);
+    ticks.add(maxLen - 1);
+    let lastYear = null;
+    Array.from(ticks).sort((a, b) => a - b).forEach(i => {
+      const d = dateAt(i);
+      if (!d) return;
+      const tx = x(i);
+      const anchor = i === 0 ? 'start' : (i === maxLen - 1 ? 'end' : 'middle');
+      axis.push(`<line class="trend-tick" x1="${tx.toFixed(1)}" x2="${tx.toFixed(1)}" y1="${(PAD_T + plotH).toFixed(1)}" y2="${(PAD_T + plotH + 4).toFixed(1)}"/>`);
+      axis.push(`<text class="trend-axis-label" x="${tx.toFixed(1)}" y="${(PAD_T + plotH + 15).toFixed(1)}" text-anchor="${anchor}">${fmtTick(d)}</text>`);
+      // add the year once, and again whenever it rolls over
+      const yr = String(d).slice(0, 4);
+      if (yr !== lastYear) {
+        axis.push(`<text class="trend-axis-year" x="${tx.toFixed(1)}" y="${(PAD_T + plotH + 25).toFixed(1)}" text-anchor="${anchor}">${yr}</text>`);
+        lastYear = yr;
+      }
+    });
 
     // league-average baseline
     let baseEls = '';
@@ -166,7 +204,7 @@
 
     box.innerHTML = `
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-        ${grid.join('')}${baseEls}${gapEl}
+        ${grid.join('')}${axis.join('')}${baseEls}${gapEl}
         ${th.length >= 2 ? `<path class="trend-line" d="${path(th, hOff)}" stroke="var(--series-home)"/>` : ''}
         ${ta.length >= 2 ? `<path class="trend-line" d="${path(ta, aOff)}" stroke="var(--series-away)"/>` : ''}
         ${markers.join('')}${ends.join('')}
