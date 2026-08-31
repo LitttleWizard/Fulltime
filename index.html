@@ -9,6 +9,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="terminal.css" />
+  <!-- not deferred: the inline page script constructs TrendChart directly -->
+  <script src="trend-chart.js"></script>
 </head>
 <body>
 
@@ -74,9 +76,18 @@
 
           <div class="center-section duo chart-duo">
             <div class="chart-cell">
-              <div class="card-title">Elo Rating — Last 20 Matches</div>
+              <div class="chart-head">
+                <div class="card-title" style="margin-bottom:0;" id="trend-title">Elo Rating</div>
+                <div class="range-picker" id="trend-range" role="group" aria-label="Chart range">
+                  <button type="button" class="range-btn" data-n="10">10</button>
+                  <button type="button" class="range-btn is-on" data-n="20">20</button>
+                  <button type="button" class="range-btn" data-n="40">40</button>
+                  <button type="button" class="range-btn" data-n="0">All</button>
+                </div>
+              </div>
               <div class="chart-legend" id="trend-legend"></div>
               <div class="trend-svg-box" id="trend-chart"></div>
+              <div class="trend-foot" id="trend-foot"></div>
             </div>
 
             <div>
@@ -285,8 +296,15 @@
           ratings[home] = Rh + delta;
           ratings[away] = Ra - delta;
 
-          (ratingTrail[home] = ratingTrail[home] || []).push({ date: m.date, rating: ratings[home] });
-          (ratingTrail[away] = ratingTrail[away] || []).push({ date: m.date, rating: ratings[away] });
+          // carry match context so the chart can explain each move
+          (ratingTrail[home] = ratingTrail[home] || []).push({
+            date: m.date, rating: ratings[home], delta, opp: away, venue: 'home',
+            gf: hg, ga: ag, result: hg > ag ? 'W' : hg < ag ? 'L' : 'D'
+          });
+          (ratingTrail[away] = ratingTrail[away] || []).push({
+            date: m.date, rating: ratings[away], delta: -delta, opp: home, venue: 'away',
+            gf: ag, ga: hg, result: ag > hg ? 'W' : ag < hg ? 'L' : 'D'
+          });
 
           [[home, away, hg, ag, 'home'], [away, home, ag, hg, 'away']].forEach(([team, opp, gf, ga, venue]) => {
             (history[team] = history[team] || []).push({
@@ -486,125 +504,21 @@
       return oldest === newest ? '' : ` (spans ${oldest} → ${newest})`;
     }
 
-    function niceStep(range) {
-      const raw = range / 4;
-      const mag = Math.pow(10, Math.floor(Math.log10(raw || 1)));
-      const norm = raw / mag;
-      const step = norm < 1.5 ? 1 : norm < 3.5 ? 2.5 : norm < 7.5 ? 5 : 10;
-      return step * mag;
-    }
-
+    // Chart lives in trend-chart.js so both league tabs share one implementation.
+    let trendChart = null;
     function renderTrendChart(elo, home, away) {
-      const legendEl = document.getElementById('trend-legend');
-      const boxEl = document.getElementById('trend-chart');
-      const N = 20;
-      const th = (elo.ratingTrail[home] || []).slice(-N);
-      const ta = (elo.ratingTrail[away] || []).slice(-N);
-
-      legendEl.innerHTML = `
-        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-home)"></span>${home}</div>
-        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-away)"></span>${away}</div>
-      `;
-
-      if (th.length < 2 && ta.length < 2) {
-        boxEl.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:12px 0;">Not enough match history yet for a trend line.</div>';
-        return;
+      if (!trendChart) {
+        trendChart = new TrendChart({
+          box: document.getElementById('trend-chart'),
+          legend: document.getElementById('trend-legend'),
+          foot: document.getElementById('trend-foot'),
+          title: document.getElementById('trend-title'),
+          rangeWrap: document.getElementById('trend-range'),
+          unit: 'Matches',
+          baseline: DEFAULT_RATING
+        });
       }
-
-      // Draw at the box's real pixel size so the plot fills it exactly. With a
-      // fixed viewBox the SVG would letterbox inside a taller cell and put the
-      // dead space back.
-      const measured = boxEl.getBoundingClientRect();
-      const W = Math.max(340, Math.round(measured.width) || 560);
-      const H = Math.max(220, Math.round(measured.height) || 300);
-      const PAD_L = 44, PAD_R = 46, PAD_T = 16, PAD_B = 24;
-      const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
-
-      const allRatings = th.concat(ta).map(p => p.rating);
-      let lo = Math.min(...allRatings), hi = Math.max(...allRatings);
-      if (lo === hi) { lo -= 10; hi += 10; }
-      const step = niceStep(hi - lo);
-      lo = Math.floor(lo / step) * step - step * 0.4;
-      hi = Math.ceil(hi / step) * step + step * 0.4;
-
-      const maxLen = Math.max(th.length, ta.length, 2);
-      const x = i => PAD_L + (i / (maxLen - 1)) * plotW;
-      const y = r => PAD_T + plotH - ((r - lo) / (hi - lo)) * plotH;
-
-      function pathFor(series) {
-        // right-align shorter series to the same end (most recent match)
-        const offset = maxLen - series.length;
-        return series.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i + offset).toFixed(1)} ${y(p.rating).toFixed(1)}`).join(' ');
-      }
-
-      const gridLines = [];
-      for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
-        const gy = y(v);
-        gridLines.push(`<line class="trend-gridline" x1="${PAD_L}" x2="${W - PAD_R}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"/>`);
-        gridLines.push(`<text class="trend-axis-label" x="${PAD_L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end">${Math.round(v)}</text>`);
-      }
-
-      const homeOffset = maxLen - th.length;
-      const awayOffset = maxLen - ta.length;
-      const lastHome = th[th.length - 1], lastAway = ta[ta.length - 1];
-
-      const dots = [];
-      if (lastHome) dots.push(`<circle class="trend-end-dot" r="4.5" cx="${x(th.length - 1 + homeOffset).toFixed(1)}" cy="${y(lastHome.rating).toFixed(1)}" fill="var(--series-home)"/>`);
-      if (lastAway) dots.push(`<circle class="trend-end-dot" r="4.5" cx="${x(ta.length - 1 + awayOffset).toFixed(1)}" cy="${y(lastAway.rating).toFixed(1)}" fill="var(--series-away)"/>`);
-
-      const endLabels = [];
-      if (lastHome) endLabels.push(`<text class="trend-end-label" x="${(x(th.length - 1 + homeOffset) + 8).toFixed(1)}" y="${(y(lastHome.rating) + 3).toFixed(1)}" fill="var(--series-home)">${Math.round(lastHome.rating)}</text>`);
-      if (lastAway) endLabels.push(`<text class="trend-end-label" x="${(x(ta.length - 1 + awayOffset) + 8).toFixed(1)}" y="${(y(lastAway.rating) + 3).toFixed(1)}" fill="var(--series-away)">${Math.round(lastAway.rating)}</text>`);
-
-      boxEl.innerHTML = `
-        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-          ${gridLines.join('')}
-          ${th.length >= 2 ? `<path class="trend-line" d="${pathFor(th)}" stroke="var(--series-home)"/>` : ''}
-          ${ta.length >= 2 ? `<path class="trend-line" d="${pathFor(ta)}" stroke="var(--series-away)"/>` : ''}
-          ${dots.join('')}
-          ${endLabels.join('')}
-          <line class="trend-crosshair" id="trend-crosshair" x1="0" x2="0" y1="${PAD_T}" y2="${PAD_T + plotH}"/>
-          <rect class="trend-hit" x="${PAD_L}" y="${PAD_T}" width="${plotW}" height="${plotH}" id="trend-hit"/>
-        </svg>
-        <div class="trend-tooltip" id="trend-tooltip"></div>
-      `;
-
-      // Hover crosshair + tooltip
-      const svgEl = boxEl.querySelector('svg');
-      const hitEl = document.getElementById('trend-hit');
-      const crosshairEl = document.getElementById('trend-crosshair');
-      const tooltipEl = document.getElementById('trend-tooltip');
-
-      hitEl.addEventListener('pointermove', (e) => {
-        const rect = svgEl.getBoundingClientRect();
-        const scale = W / rect.width;
-        const mx = (e.clientX - rect.left) * scale;
-        let idx = Math.round((mx - PAD_L) / plotW * (maxLen - 1));
-        idx = Math.max(0, Math.min(maxLen - 1, idx));
-        const cx = x(idx);
-        crosshairEl.setAttribute('x1', cx.toFixed(1));
-        crosshairEl.setAttribute('x2', cx.toFixed(1));
-        crosshairEl.style.opacity = '1';
-
-        const hIdx = idx - homeOffset, aIdx = idx - awayOffset;
-        const hp = th[hIdx], ap = ta[aIdx];
-        if (!hp && !ap) { tooltipEl.style.opacity = '0'; return; }
-        const date = (hp && hp.date) || (ap && ap.date) || '';
-        let rows = '';
-        if (hp) rows += `<div class="tt-row"><span class="tt-key" style="background:var(--series-home)"></span>${home}<span class="tt-val">${Math.round(hp.rating)}</span></div>`;
-        if (ap) rows += `<div class="tt-row"><span class="tt-key" style="background:var(--series-away)"></span>${away}<span class="tt-val">${Math.round(ap.rating)}</span></div>`;
-        tooltipEl.innerHTML = `<div class="tt-date">${date}</div>${rows}`;
-        tooltipEl.style.opacity = '1';
-        const boxRect = boxEl.getBoundingClientRect();
-        let left = (cx / scale) + 12;
-        if (left + 150 > boxRect.width) left = (cx / scale) - 162;
-        tooltipEl.style.left = left + 'px';
-        tooltipEl.style.top = '4px';
-      });
-      hitEl.addEventListener('pointerleave', () => {
-        crosshairEl.style.opacity = '0';
-        tooltipEl.style.opacity = '0';
-      });
+      trendChart.render(elo.ratingTrail, home, away);
     }
 
     function metricBarRow(label, homeVal, awayVal, decimals) {

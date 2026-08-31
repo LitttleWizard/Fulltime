@@ -239,6 +239,10 @@
       transition: color 0.15s, border-color 0.15s;
     }
     .tb-btn:hover { color: var(--text); border-color: var(--border-strong); }
+    .tb-btn.is-on {
+      color: var(--live); border-color: rgba(240,80,110,0.45);
+      background: rgba(240,80,110,0.10);
+    }
     .tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
 
     /* ── Quote panel (right column top) ── */
@@ -511,6 +515,56 @@
     .legend-swatch.dot { width: 8px; height: 8px; border-radius: 50%; }
 
     /* ── Rating trend chart ── */
+    .chart-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin-bottom: 10px; flex-wrap: wrap;
+    }
+    .range-picker {
+      display: flex; gap: 2px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 7px; padding: 2px;
+    }
+    .range-btn {
+      font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+      color: var(--muted); background: none; border: none; border-radius: 5px;
+      padding: 4px 9px; cursor: pointer; transition: color .12s, background .12s;
+    }
+    .range-btn:hover { color: var(--text); }
+    .range-btn.is-on { background: var(--brand-dim); color: var(--brand); }
+    .range-btn:focus-visible { outline: 1px solid var(--brand-border); }
+
+    .trend-foot {
+      margin-top: 8px; font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px; color: var(--muted);
+      display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    }
+    .trend-foot .up { color: var(--up); }
+    .trend-foot .down { color: var(--down); }
+
+    .trend-marker { stroke-width: 1.5; }
+    .trend-gap { opacity: 0.13; }
+    .trend-baseline { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3,4; opacity: 0.5; }
+    .trend-baseline-label {
+      font-family: 'JetBrains Mono', monospace; font-size: 9px;
+      fill: var(--muted); opacity: 0.8;
+    }
+
+    .trend-tooltip .tt-delta { font-weight: 500; margin-left: 5px; }
+    .trend-tooltip .tt-delta.up { color: var(--up); }
+    .trend-tooltip .tt-delta.down { color: var(--down); }
+    .trend-tooltip .tt-delta.flat { color: var(--muted); }
+    .trend-tooltip .tt-sub {
+      font-size: 10.5px; color: var(--muted); margin: 1px 0 7px 16px;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .trend-tooltip .tt-res { font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+    .trend-tooltip .tt-res.W { color: var(--win); }
+    .trend-tooltip .tt-res.D { color: var(--draw); }
+    .trend-tooltip .tt-res.L { color: var(--loss); }
+    .trend-tooltip .tt-gap {
+      margin-top: 2px; padding-top: 6px; border-top: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted);
+    }
+
     .trend-svg-box { position: relative; flex: 1; min-height: 230px; }
     .trend-svg-box svg { display: block; width: 100%; height: 100%; overflow: visible; }
     .trend-gridline { stroke: var(--grid-line); stroke-width: 1; }

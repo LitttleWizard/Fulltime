@@ -9,6 +9,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="terminal.css" />
+  <!-- not deferred: the inline page script constructs TrendChart directly -->
+  <script src="trend-chart.js"></script>
 </head>
 <body>
 
@@ -67,6 +69,11 @@
             <select id="home-select" style="flex:1 1 130px; width:auto; max-width:220px;" aria-label="Home team"></select>
             <div class="tb-sep"></div>
             <select id="fixture-select" style="flex:1 1 200px; width:auto; max-width:280px;" aria-label="Upcoming game"></select>
+            <div class="tb-sep"></div>
+            <div class="tb-btn" id="qb-away" role="button" tabindex="0"
+                 title="Away team starting a backup/new QB">⚠ Away QB out</div>
+            <div class="tb-btn" id="qb-home" role="button" tabindex="0"
+                 title="Home team starting a backup/new QB">⚠ Home QB out</div>
           </div>
         </div>
 
@@ -74,9 +81,18 @@
 
           <div class="center-section duo chart-duo">
             <div class="chart-cell">
-              <div class="card-title">Elo Rating — Last 20 Games</div>
+              <div class="chart-head">
+                <div class="card-title" style="margin-bottom:0;" id="trend-title">Elo Rating</div>
+                <div class="range-picker" id="trend-range" role="group" aria-label="Chart range">
+                  <button type="button" class="range-btn" data-n="10">10</button>
+                  <button type="button" class="range-btn is-on" data-n="20">20</button>
+                  <button type="button" class="range-btn" data-n="40">40</button>
+                  <button type="button" class="range-btn" data-n="0">All</button>
+                </div>
+              </div>
               <div class="chart-legend" id="trend-legend"></div>
               <div class="trend-svg-box" id="trend-chart"></div>
+              <div class="trend-foot" id="trend-foot"></div>
             </div>
 
             <div>
@@ -271,8 +287,15 @@
 
         ratings[h] = Rh + delta;
         ratings[a] = Ra - delta;
-        (ratingTrail[h] = ratingTrail[h] || []).push({ date: g.date, rating: ratings[h] });
-        (ratingTrail[a] = ratingTrail[a] || []).push({ date: g.date, rating: ratings[a] });
+        // carry match context so the chart can explain each move
+        (ratingTrail[h] = ratingTrail[h] || []).push({
+          date: g.date, rating: ratings[h], delta, opp: a, venue: 'home',
+          gf: g.hs, ga: g.as, result: margin > 0 ? 'W' : margin < 0 ? 'L' : 'D'
+        });
+        (ratingTrail[a] = ratingTrail[a] || []).push({
+          date: g.date, rating: ratings[a], delta: -delta, opp: h, venue: 'away',
+          gf: g.as, ga: g.hs, result: margin < 0 ? 'W' : margin > 0 ? 'L' : 'D'
+        });
 
         [[h, a, g.hs, g.as, 'home'], [a, h, g.as, g.hs, 'away']].forEach(([team, opp, pf, pa, venue]) => {
           (history[team] = history[team] || []).push({
@@ -298,16 +321,31 @@
 
     function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-    function predict(elo, home, away) {
+    // Fitted by nfl_features.py: of every extra signal in the nflverse file
+    // (rest days, divisional, roof, wind, temperature) a QB change was the only
+    // one that improved the held-out score — 0.6334 -> 0.6304 log-loss. The
+    // others were noise or actively hurt, so they are deliberately not used.
+    const QB_BETA = 0.52;
+
+    function predict(elo, home, away, qb) {
       const Rh = elo.ratings[home] ?? DEFAULT_RATING;
       const Ra = elo.ratings[away] ?? DEFAULT_RATING;
       const dr = Rh - Ra + HOME_ADV;
-      const homeWin = 1 / (1 + Math.pow(10, -dr / 400));
+      let homeWin = 1 / (1 + Math.pow(10, -dr / 400));
+
+      // Backup QB adjustment, applied in log-odds space. Away disruption helps
+      // the home side and vice versa.
+      const qbNet = ((qb && qb.away) ? 1 : 0) - ((qb && qb.home) ? 1 : 0);
+      if (qbNet !== 0) {
+        const z = Math.log(homeWin / (1 - homeWin)) + QB_BETA * qbNet;
+        homeWin = 1 / (1 + Math.exp(-z));
+      }
+
       // Elo point gap -> point spread. ~25 Elo per point is the standard
       // conversion used for NFL ratings.
-      const spread = dr / 25;
+      const spread = (Math.log(homeWin / (1 - homeWin)) * 400 / Math.LN10) / 25;
       return {
-        homeWin, awayWin: 1 - homeWin, Rh, Ra, spread,
+        homeWin, awayWin: 1 - homeWin, Rh, Ra, spread, qbNet,
         sHome: recentStats(elo.history, home, 8),
         sAway: recentStats(elo.history, away, 8)
       };
@@ -323,109 +361,22 @@
       }).join('');
     }
 
-    function niceStep(range) {
-      const raw = range / 4;
-      const mag = Math.pow(10, Math.floor(Math.log10(raw || 1)));
-      const norm = raw / mag;
-      const step = norm < 1.5 ? 1 : norm < 3.5 ? 2.5 : norm < 7.5 ? 5 : 10;
-      return step * mag;
-    }
-
+    // Chart lives in trend-chart.js so both league tabs share one implementation.
+    let trendChart = null;
     function renderTrendChart(elo, home, away) {
-      const legendEl = document.getElementById('trend-legend');
-      const boxEl = document.getElementById('trend-chart');
-      const N = 20;
-      const th = (elo.ratingTrail[home] || []).slice(-N);
-      const ta = (elo.ratingTrail[away] || []).slice(-N);
-
-      legendEl.innerHTML = `
-        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-home)"></span>${teamName(home)}</div>
-        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-away)"></span>${teamName(away)}</div>
-      `;
-      if (th.length < 2 && ta.length < 2) {
-        boxEl.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:12px 0;">Not enough game history yet.</div>';
-        return;
+      if (!trendChart) {
+        trendChart = new TrendChart({
+          box: document.getElementById('trend-chart'),
+          legend: document.getElementById('trend-legend'),
+          foot: document.getElementById('trend-foot'),
+          title: document.getElementById('trend-title'),
+          rangeWrap: document.getElementById('trend-range'),
+          label: teamName,
+          unit: 'Games',
+          baseline: DEFAULT_RATING
+        });
       }
-
-      const measured = boxEl.getBoundingClientRect();
-      const W = Math.max(340, Math.round(measured.width) || 560);
-      const H = Math.max(220, Math.round(measured.height) || 300);
-      const PAD_L = 44, PAD_R = 46, PAD_T = 16, PAD_B = 24;
-      const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
-
-      const all = th.concat(ta).map(p => p.rating);
-      let lo = Math.min(...all), hi = Math.max(...all);
-      if (lo === hi) { lo -= 10; hi += 10; }
-      const step = niceStep(hi - lo);
-      lo = Math.floor(lo / step) * step - step * 0.4;
-      hi = Math.ceil(hi / step) * step + step * 0.4;
-
-      const maxLen = Math.max(th.length, ta.length, 2);
-      const x = i => PAD_L + (i / (maxLen - 1)) * plotW;
-      const y = r => PAD_T + plotH - ((r - lo) / (hi - lo)) * plotH;
-      const pathFor = s => {
-        const off = maxLen - s.length;
-        return s.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i + off).toFixed(1)} ${y(p.rating).toFixed(1)}`).join(' ');
-      };
-
-      const grid = [];
-      for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
-        const gy = y(v);
-        grid.push(`<line class="trend-gridline" x1="${PAD_L}" x2="${W - PAD_R}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"/>`);
-        grid.push(`<text class="trend-axis-label" x="${PAD_L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end">${Math.round(v)}</text>`);
-      }
-
-      const hOff = maxLen - th.length, aOff = maxLen - ta.length;
-      const lastH = th[th.length - 1], lastA = ta[ta.length - 1];
-      const dots = [], labels = [];
-      if (lastH) {
-        dots.push(`<circle class="trend-end-dot" r="4.5" cx="${x(th.length - 1 + hOff).toFixed(1)}" cy="${y(lastH.rating).toFixed(1)}" fill="var(--series-home)"/>`);
-        labels.push(`<text class="trend-end-label" x="${(x(th.length - 1 + hOff) + 8).toFixed(1)}" y="${(y(lastH.rating) + 3).toFixed(1)}" fill="var(--series-home)">${Math.round(lastH.rating)}</text>`);
-      }
-      if (lastA) {
-        dots.push(`<circle class="trend-end-dot" r="4.5" cx="${x(ta.length - 1 + aOff).toFixed(1)}" cy="${y(lastA.rating).toFixed(1)}" fill="var(--series-away)"/>`);
-        labels.push(`<text class="trend-end-label" x="${(x(ta.length - 1 + aOff) + 8).toFixed(1)}" y="${(y(lastA.rating) + 3).toFixed(1)}" fill="var(--series-away)">${Math.round(lastA.rating)}</text>`);
-      }
-
-      boxEl.innerHTML = `
-        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-          ${grid.join('')}
-          ${th.length >= 2 ? `<path class="trend-line" d="${pathFor(th)}" stroke="var(--series-home)"/>` : ''}
-          ${ta.length >= 2 ? `<path class="trend-line" d="${pathFor(ta)}" stroke="var(--series-away)"/>` : ''}
-          ${dots.join('')}${labels.join('')}
-          <line class="trend-crosshair" id="trend-crosshair" x1="0" x2="0" y1="${PAD_T}" y2="${PAD_T + plotH}"/>
-          <rect class="trend-hit" x="${PAD_L}" y="${PAD_T}" width="${plotW}" height="${plotH}" id="trend-hit"/>
-        </svg>
-        <div class="trend-tooltip" id="trend-tooltip"></div>`;
-
-      const svgEl = boxEl.querySelector('svg');
-      const hitEl = document.getElementById('trend-hit');
-      const crossEl = document.getElementById('trend-crosshair');
-      const tipEl = document.getElementById('trend-tooltip');
-      hitEl.addEventListener('pointermove', e => {
-        const rect = svgEl.getBoundingClientRect();
-        const scale = W / rect.width;
-        let idx = Math.round(((e.clientX - rect.left) * scale - PAD_L) / plotW * (maxLen - 1));
-        idx = clamp(idx, 0, maxLen - 1);
-        const cx = x(idx);
-        crossEl.setAttribute('x1', cx.toFixed(1));
-        crossEl.setAttribute('x2', cx.toFixed(1));
-        crossEl.style.opacity = '1';
-        const hp = th[idx - hOff], ap = ta[idx - aOff];
-        if (!hp && !ap) { tipEl.style.opacity = '0'; return; }
-        let rows = '';
-        if (hp) rows += `<div class="tt-row"><span class="tt-key" style="background:var(--series-home)"></span>${home}<span class="tt-val">${Math.round(hp.rating)}</span></div>`;
-        if (ap) rows += `<div class="tt-row"><span class="tt-key" style="background:var(--series-away)"></span>${away}<span class="tt-val">${Math.round(ap.rating)}</span></div>`;
-        tipEl.innerHTML = `<div class="tt-date">${(hp && hp.date) || (ap && ap.date) || ''}</div>${rows}`;
-        tipEl.style.opacity = '1';
-        let left = (cx / scale) + 12;
-        if (left + 150 > boxEl.getBoundingClientRect().width) left = (cx / scale) - 162;
-        tipEl.style.left = Math.max(0, left) + 'px';
-        tipEl.style.top = '4px';
-      });
-      hitEl.addEventListener('pointerleave', () => {
-        crossEl.style.opacity = '0'; tipEl.style.opacity = '0';
-      });
+      trendChart.render(elo.ratingTrail, home, away);
     }
 
     function metricRow(label, a, h, dp) {
@@ -495,8 +446,28 @@
     });
     homeSelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
     awaySelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
+    // Expected starters aren't fetchable in the browser (nflverse depth charts are
+    // release assets with no CORS header), so the QB signal is exposed as a manual
+    // toggle — it lets you tell the model something it genuinely cannot know.
+    const qbState = { home: false, away: false };
+    ['home', 'away'].forEach(side => {
+      const btn = document.getElementById('qb-' + side);
+      const toggle = () => {
+        qbState[side] = !qbState[side];
+        btn.classList.toggle('is-on', qbState[side]);
+        render();
+      };
+      btn.addEventListener('click', toggle);
+      btn.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+      });
+    });
+
     document.getElementById('tb-swap').addEventListener('click', () => {
       const h = homeSelect.value; homeSelect.value = awaySelect.value; awaySelect.value = h;
+      const q = qbState.home; qbState.home = qbState.away; qbState.away = q;
+      document.getElementById('qb-home').classList.toggle('is-on', qbState.home);
+      document.getElementById('qb-away').classList.toggle('is-on', qbState.away);
       fixtureSelect.value = ''; render();
     });
     document.getElementById('tb-reset').addEventListener('click', () => {
@@ -553,7 +524,7 @@
 
     function render() {
       const home = homeSelect.value, away = awaySelect.value;
-      const p = predict(elo, home, away);
+      const p = predict(elo, home, away, qbState);
       const hPct = Math.round(p.homeWin * 100), aPct = 100 - hPct;
 
       document.getElementById('label-home').textContent = teamName(home);
@@ -573,7 +544,8 @@
       document.getElementById('symbol-sub').innerHTML =
         `ELO <b>${Math.round(p.Ra)}</b> · <b>${Math.round(p.Rh)}</b>` +
         `&nbsp;&nbsp;HOME ADV <b>+${HOME_ADV}</b>` +
-        `&nbsp;&nbsp;PROJ SPREAD <b>${fav} −${spread.toFixed(1)}</b>`;
+        `&nbsp;&nbsp;PROJ SPREAD <b>${fav} −${spread.toFixed(1)}</b>` +
+        (p.qbNet ? `&nbsp;&nbsp;<b style="color:var(--live)">QB ADJ</b>` : '');
       document.getElementById('symbol-price').textContent = favPct + '%';
       document.getElementById('symbol-price-label').textContent = `${teamName(fav)} favored`;
 
@@ -666,6 +638,19 @@
       works when scores are small integers arriving one at a time. NFL points come in 7s and 3s, and
       ties are about 0.2% of games, so a three-outcome goals model has nothing to model. Elo on
       margin of victory is the right shape for this sport.
+      <br><br>
+      <b>What else was tested and rejected.</b> The nflverse file also carries rest days, divisional
+      flags, roof type, wind and temperature. Each was fitted as a logistic adjustment on the
+      training era and then checked on the holdout (<code>nfl_features.py</code>): rest, divisional
+      and cold were marginal at best, and indoor/wind actually made the held-out score worse. They
+      are deliberately not used. The one signal that survived was a <b>quarterback change</b>
+      (β=${QB_BETA}), worth 0.6334 → 0.6304 log-loss — real, and it generalised cleanly.
+      <br><br>
+      Expected starters can't be fetched here (nflverse depth charts are release assets and serve
+      no CORS header), so that adjustment is exposed as the two <b>QB out</b> toggles in the
+      toolbar. It's the one thing you reliably know that the model can't: flip it when a team is
+      starting a backup. Note it improves the <i>probabilities</i> more than the picks — accuracy
+      only moves 64.3% → 64.4%.
       <br><br>
       <b>How accurate is it?</b> Constants (K=${K}, home advantage, offseason regression) were grid-searched
       on 2001–2022 and then scored on 854 games from 2023 onward that the tuning never saw: it calls
