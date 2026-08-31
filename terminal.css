@@ -403,6 +403,32 @@
     .quote-stat-row .k { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .quote-stat-row .v { font-family: 'JetBrains Mono', monospace; color: var(--text); font-weight: 500; flex-shrink: 0; }
 
+    /* ── Chart view tabs ── */
+    .chart-tabs { display: flex; gap: 2px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 7px; padding: 2px; }
+    .chart-tab {
+      font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+      color: var(--muted); background: none; border: none; border-radius: 5px;
+      padding: 4px 10px; cursor: pointer; transition: color .12s, background .12s;
+    }
+    .chart-tab:hover { color: var(--text); }
+    .chart-tab.is-on { background: var(--brand-dim); color: var(--brand); }
+    .chart-tab:focus-visible { outline: 1px solid var(--brand-border); }
+
+    /* win-probability chart */
+    .wp-area { stroke: none; }
+    .wp-area.home { fill: var(--series-home); }
+    .wp-area.draw { fill: var(--draw); }
+    .wp-area.away { fill: var(--series-away); }
+    .wp-now { stroke: var(--live); stroke-width: 1.6; stroke-dasharray: 3,3; }
+    .wp-now-label {
+      font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+      fill: var(--live); font-weight: 700;
+    }
+    .wp-axis-label { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; fill: var(--muted); }
+    .wp-caption { margin-top: 8px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+    .wp-caption b { color: var(--text); font-weight: 600; }
+
     /* ── Live match indicators ── */
     .ticker-row.is-live { background: rgba(240,80,110,0.07); box-shadow: inset 2px 0 0 var(--live); }
     .live-pill {

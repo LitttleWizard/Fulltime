@@ -99,7 +99,10 @@
           <div class="center-section duo chart-duo">
             <div class="chart-cell">
               <div class="chart-head">
-                <div class="card-title" style="margin-bottom:0;" id="trend-title">Elo Rating</div>
+                <div class="chart-tabs" id="chart-tabs" role="group" aria-label="Chart view">
+                  <button type="button" class="chart-tab is-on" data-view="elo">ELO</button>
+                  <button type="button" class="chart-tab" data-view="wp">WIN PROB</button>
+                </div>
                 <div class="range-picker" id="trend-range" role="group" aria-label="Chart range">
                   <button type="button" class="range-btn" data-n="10">10</button>
                   <button type="button" class="range-btn is-on" data-n="20">20</button>
@@ -107,9 +110,20 @@
                   <button type="button" class="range-btn" data-n="0">All</button>
                 </div>
               </div>
-              <div class="chart-legend" id="trend-legend"></div>
-              <div class="trend-svg-box" id="trend-chart"></div>
-              <div class="trend-foot" id="trend-foot"></div>
+
+              <div id="view-elo">
+                <div class="card-title" style="margin-bottom:8px;" id="trend-title">Elo Rating</div>
+                <div class="chart-legend" id="trend-legend"></div>
+                <div class="trend-svg-box" id="trend-chart"></div>
+                <div class="trend-foot" id="trend-foot"></div>
+              </div>
+
+              <div id="view-wp" style="display:none;">
+                <div class="card-title" style="margin-bottom:8px;" id="wp-title">Win Probability by Minute</div>
+                <div class="chart-legend" id="wp-legend"></div>
+                <div class="trend-svg-box" id="wp-chart"></div>
+                <div class="wp-caption" id="wp-caption"></div>
+              </div>
             </div>
 
             <div>
@@ -742,11 +756,100 @@
       document.getElementById('stat-away').innerHTML = statBlock(away);
       document.getElementById('h2h').textContent = h2hSummary(elo.history, home, away);
 
-      renderTrendChart(elo, home, away);
+      if (chartView === 'wp') renderWinProbChart(home, away, p, lv);
+      else renderTrendChart(elo, home, away);
       renderMetricBars(home, away, p);
     }
 
     // This week's fixtures
+    // ── Win-probability chart ────────────────────────────────────────────
+    // Sweeps the whole match and asks, at each minute, "with the score as it
+    // stands right now, how do the three outcomes split with that much time
+    // left?" Falls straight out of Dixon-Coles: remaining goals are Poisson at
+    // a pro-rated rate. Live matches get a marker at the current minute.
+    let chartView = 'elo';
+
+    function renderWinProbChart(home, away, p, lv) {
+      const box = document.getElementById('wp-chart');
+      const inPlay = lv && lv.state === 'in';
+      const hs = inPlay ? lv.hs : 0, as = inPlay ? lv.as : 0;
+      const nowMin = inPlay ? Math.min(90, 90 - Live.minsLeft(lv)) : null;
+
+      document.getElementById('wp-legend').innerHTML =
+        `<div class="legend-item"><span class="legend-swatch" style="background:var(--series-home)"></span>${home}</div>` +
+        `<div class="legend-item"><span class="legend-swatch" style="background:var(--draw)"></span>Draw</div>` +
+        `<div class="legend-item"><span class="legend-swatch" style="background:var(--series-away)"></span>${away}</div>`;
+
+      const m = box.getBoundingClientRect();
+      const W = Math.max(340, Math.round(m.width) || 520);
+      const H = Math.max(200, Math.round(m.height) || 280);
+      const PAD_L = 34, PAD_R = 14, PAD_T = 12, PAD_B = 26;
+      const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+      const x = min => PAD_L + (min / 90) * plotW;
+      const y = frac => PAD_T + (1 - frac) * plotH;
+
+      // sample every 2 minutes
+      const pts = [];
+      for (let min = 0; min <= 90; min += 2) {
+        const w = Live.winProb(p.lh, p.la, hs, as, 90 - min);
+        pts.push({ min, h: w.home, d: w.draw, a: w.away });
+      }
+
+      // stacked bands: home at the bottom, then draw, then away
+      const band = (lowFn, highFn) => {
+        const top = pts.map(q => `${x(q.min).toFixed(1)} ${y(highFn(q)).toFixed(1)}`);
+        const bot = pts.slice().reverse().map(q => `${x(q.min).toFixed(1)} ${y(lowFn(q)).toFixed(1)}`);
+        return `M ${top.join(' L ')} L ${bot.join(' L ')} Z`;
+      };
+      const areas =
+        `<path class="wp-area home" d="${band(() => 0, q => q.h)}"/>` +
+        `<path class="wp-area draw" d="${band(q => q.h, q => q.h + q.d)}"/>` +
+        `<path class="wp-area away" d="${band(q => q.h + q.d, () => 1)}"/>`;
+
+      const grid = [];
+      [0, 0.25, 0.5, 0.75, 1].forEach(f => {
+        const gy = y(f);
+        grid.push(`<line class="trend-gridline" x1="${PAD_L}" x2="${W - PAD_R}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"/>`);
+        grid.push(`<text class="wp-axis-label" x="${PAD_L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end">${Math.round(f * 100)}</text>`);
+      });
+      const xTicks = [0, 15, 30, 45, 60, 75, 90].map(min =>
+        `<text class="wp-axis-label" x="${x(min).toFixed(1)}" y="${(PAD_T + plotH + 15).toFixed(1)}" text-anchor="${min === 0 ? 'start' : min === 90 ? 'end' : 'middle'}">${min}'</text>`
+      ).join('');
+
+      let nowEls = '';
+      if (nowMin != null) {
+        nowEls =
+          `<line class="wp-now" x1="${x(nowMin).toFixed(1)}" x2="${x(nowMin).toFixed(1)}" y1="${PAD_T}" y2="${(PAD_T + plotH).toFixed(1)}"/>` +
+          `<text class="wp-now-label" x="${x(nowMin).toFixed(1)}" y="${(PAD_T - 2).toFixed(1)}" text-anchor="middle">NOW</text>`;
+      }
+
+      box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+          ${areas}${grid.join('')}${xTicks}${nowEls}
+        </svg>`;
+
+      const cur = Live.winProb(p.lh, p.la, hs, as, inPlay ? Live.minsLeft(lv) : 90);
+      document.getElementById('wp-caption').innerHTML = inPlay
+        ? `At <b>${hs}–${as}</b>, ${Live.minsLeft(lv)} min left: <b>${(cur.home*100).toFixed(0)}%</b> ${home} ·
+           <b>${(cur.draw*100).toFixed(0)}%</b> draw · <b>${(cur.away*100).toFixed(0)}%</b> ${away}.
+           The curve is where it goes if the score stays put — note the draw squeezing everything as time runs out.`
+        : `Not in play, so this is the pre-match shape from <b>0–0</b>: how the three outcomes split
+           if the match were goalless at each minute. The draw takes over as time runs out.`;
+    }
+
+    function setChartView(v) {
+      chartView = v;
+      document.getElementById('view-elo').style.display = v === 'elo' ? '' : 'none';
+      document.getElementById('view-wp').style.display = v === 'wp' ? '' : 'none';
+      document.getElementById('trend-range').style.visibility = v === 'elo' ? '' : 'hidden';
+      document.querySelectorAll('#chart-tabs .chart-tab')
+        .forEach(b => b.classList.toggle('is-on', b.getAttribute('data-view') === v));
+      render();
+    }
+    document.getElementById('chart-tabs').addEventListener('click', e => {
+      const b = e.target.closest('.chart-tab');
+      if (b) setChartView(b.getAttribute('data-view'));
+    });
+
     // ── Live scores (ESPN) ────────────────────────────────────────────────
     // Purely additive: if the feed is unavailable, liveByKey stays empty and
     // every render below behaves exactly as it did before.
