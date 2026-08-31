@@ -10,12 +10,17 @@
 (function () {
   'use strict';
 
+  // Defaults suit the EPL/NFL terminals. A page whose columns hold something
+  // else (the log tab) overrides them per column with data-mtab / data-mtab-icon.
   var PANELS = [
     { key: 'center',    sel: '.term-center',    icon: '◧', label: 'Predict' },
     { key: 'watchlist', sel: '.term-watchlist', icon: '☰', label: 'Teams' },
     { key: 'quotes',    sel: '.term-quotes',    icon: '◷', label: 'Games' }
   ];
-  var KEY = 'fulltime-mobile-panel';
+  // Scoped per page: the three slots mean different things on the log tab
+  // ("Log / Record / Calibration") than on the terminals ("Predict / Teams /
+  // Games"), so a choice made on one should not carry over to the other.
+  var KEY = 'fulltime-mobile-panel:' + location.pathname;
 
   function init() {
     var shell = document.querySelector('.shell');
@@ -28,12 +33,15 @@
 
     var buttons = {};
     PANELS.forEach(function (p) {
-      if (!document.querySelector(p.sel)) return;
+      var col = document.querySelector(p.sel);
+      if (!col) return;
+      var label = col.getAttribute('data-mtab') || p.label;
+      var icon = col.getAttribute('data-mtab-icon') || p.icon;
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'mtab';
       b.dataset.panel = p.key;
-      b.innerHTML = '<span class="mtab-ico" aria-hidden="true">' + p.icon + '</span>' + p.label;
+      b.innerHTML = '<span class="mtab-ico" aria-hidden="true">' + icon + '</span>' + label;
       b.addEventListener('click', function () { show(p.key); });
       bar.appendChild(b);
       buttons[p.key] = b;

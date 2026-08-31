@@ -357,6 +357,7 @@
       color: var(--muted);
     }
     .symbol-sub b { color: var(--text); font-weight: 600; }
+    .symbol-sub .ss-stat { white-space: nowrap; }
     .symbol-price-wrap { text-align: right; }
     .symbol-price { font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: 700; line-height: 1; color: var(--brand); }
     .symbol-price-label { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; }
@@ -377,6 +378,9 @@
 
     /* ── Toolbar (decorative + functional icon buttons) ── */
     .toolbar { display: flex; align-items: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+    .tb-select { flex: 1 1 130px; width: auto; max-width: 220px; }
+    .tb-select-fixture { flex: 1 1 200px; max-width: 280px; }
+    .toolbar .vs { padding-top: 0; }
     .tb-btn {
       display: inline-flex;
       align-items: center;
@@ -1127,4 +1131,50 @@
 @media (max-width: 700px) {
   .sheet-grid { grid-template-columns: 1fr; gap: 14px; }
   .feed-list { max-height: 260px; }
+}
+
+
+/* ── Phone: give the prediction room ───────────────────────────────────
+   On a 375px screen the header plus the three stacked pickers were eating
+   roughly half the viewport before a single probability was visible. The
+   controls become a two-row grid and the header collapses to one line. */
+@media (max-width: 700px) {
+  .center-head { padding: 10px 14px 10px; }
+
+  .symbol-bar { align-items: flex-start; gap: 10px; flex-wrap: nowrap; }
+  .symbol-teams { font-size: 16px; line-height: 1.25; }
+  .symbol-teams .sv { margin: 0 5px; font-size: 11px; }
+  .symbol-sub { gap: 4px 10px; margin-top: 5px; font-size: 10px; }
+  .symbol-price-wrap { flex: 0 0 auto; }
+  .symbol-price { font-size: 23px; }
+  .symbol-price-label { font-size: 9px; margin-top: 2px; }
+
+  /* home | away | swap  ·  fixture spans the row beneath */
+  .toolbar {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    align-items: center;
+    gap: 7px;
+    margin-top: 9px;
+  }
+  .toolbar .tb-sep, .toolbar .vs, .toolbar #tb-reset { display: none; }
+  /* explicit placement — source order would otherwise put swap in a 1fr track
+     and leave the away picker on the `auto` one, making them unequal */
+  .toolbar #home-select { grid-column: 1; grid-row: 1; }
+  .toolbar #away-select { grid-column: 2; grid-row: 1; }
+  .toolbar #tb-swap     { grid-column: 3; grid-row: 1; }
+  .toolbar .tb-select-fixture { grid-column: 1 / -1; grid-row: 2; }
+  .toolbar .tb-select {
+    flex: none; width: 100%; max-width: none; min-width: 0;
+    padding: 9px 10px; font-size: 16px;    /* 16px still avoids iOS zoom */
+  }
+
+  /* icon-only swap: the label is redundant next to two team pickers */
+  .toolbar #tb-swap {
+    padding: 9px 10px; gap: 0;
+    font-size: 0; line-height: 1;
+  }
+  .toolbar #tb-swap::before { content: '\21C4'; font-size: 15px; }
+
+  .center-body { padding: 14px 14px 24px; }
 }

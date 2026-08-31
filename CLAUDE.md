@@ -3,7 +3,7 @@
 Sports match predictor with two tabs, both computed client-side with no backend and
 no API keys. Static pages, no build step.
 
-- **EPL** (`index.html`) — Dixon-Coles model (attack/defence strengths, Poisson goals
+- **EPL** (`epl.html`; `index.html` is the landing page) — Dixon-Coles model (attack/defence strengths, Poisson goals
   with the low-score correction) fitted in-browser; produces win/draw/loss plus a
   scoreline distribution. Elo is kept alongside it purely for the watchlist rating and
   trend chart. Data: `openfootball/football.json`, fetched live.
@@ -12,6 +12,11 @@ no API keys. Static pages, no build step.
 
 `terminal.css` holds the shared terminal-style layout used by both pages; keep page
 files free of layout CSS so the two tabs can't drift apart.
+
+`mobile-nav.js` injects the bottom tab bar and shows one column at a time below
+1080px — without it every `.term-col` is `display:none` and the page renders
+blank on a phone. Any new page built from `.term-col` must load it. Columns can
+override the tab label with `data-mtab` / `data-mtab-icon` (the log tab does).
 
 ## Data source gotchas — read before touching data loading
 
@@ -29,6 +34,36 @@ files free of layout CSS so the two tabs can't drift apart.
 - **`nflreadpy` needs Python ≥3.10** and isn't used here — it's a wrapper over the same
   nflverse file the page reads directly. If you ever want its richer play-by-play data,
   write a build script that emits JSON (the `build_shots.py` pattern).
+
+## Player ratings (`players.js`, `epl-players.json`)
+
+EA FC 26 overalls, snapshot **2025-09-19**, trimmed from an upstream 9MB CSV by
+`build_players.py`. Shown as a team sheet on `epl.html` once ESPN publishes a
+lineup, which it only does near kickoff — a fixture days out has empty rosters.
+
+What was measured (`epl_players.py`, 340 matches, betas cross-fitted):
+
+| model | logloss |
+|---|---|
+| Dixon-Coles alone | 1.0350 |
+| + absolute XI quality gap | 1.0450 — **worse** |
+| + XI vs that club's recent norm | 1.0347 — +0.0003 |
+
+The absolute gap fails because Dixon-Coles already infers team strength from
+results, and results beat a video-game rating as soon as you have any. Only the
+*deviation* from a club's own norm is new information, and it is worth almost
+nothing — real in sign (positive betas in both folds and across four encodings)
+but negligible in size. Don't talk it up; the page states the number.
+
+- Name matching ESPN → EA FC is 97.3% on 8,360 starters. The rest are players
+  who joined after the snapshot; they fall back to club mean. Match on the SET
+  of surname tokens, not the last one — Iberian double surnames ("Ezri Konsa
+  Ngoyo" vs ESPN's "Ezri Konsa") break naive matching, and `ß` must become `ss`
+  before the ASCII fold or "Groß" collapses to "gro".
+- `fetch_lineups.py` caches historical lineups to `lineups.json` (one ESPN
+  request per match, append-only). `build_players.py` reads it to compute each
+  club's rolling baseline XI, so the shipped feature is identical to the tested
+  one.
 
 ## Measuring accuracy
 
@@ -71,3 +106,7 @@ breaks the page shows no live badge rather than erroring.
   empirical play-by-play model (and nflverse play-by-play is CORS-blocked).
 - It ignores game state effects (teams protect leads), red cards, and real
   stoppage time. Sound baseline, not a betting model.
+- `Live.detail()` returns goals, the play-by-play feed and the lineup from a
+  single `summary` request. Injuries have no event of their own — ESPN writes
+  them into the substitution text ("… because of an injury"), which is what
+  `classify()` keys on. Feed text is third-party and goes through `esc()`.

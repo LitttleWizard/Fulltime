@@ -87,11 +87,11 @@
             <div class="tb-btn" id="tb-swap">⇄ Swap sides</div>
             <div class="tb-btn" id="tb-reset">↺ Reset</div>
             <div class="tb-sep"></div>
-            <select id="home-select" style="flex:1 1 130px; width:auto; max-width:220px;" aria-label="Home team"></select>
-            <span class="vs" style="padding-top:0;">vs</span>
-            <select id="away-select" style="flex:1 1 130px; width:auto; max-width:220px;" aria-label="Away team"></select>
+            <select id="home-select" class="tb-select" aria-label="Home team"></select>
+            <span class="vs">vs</span>
+            <select id="away-select" class="tb-select" aria-label="Away team"></select>
             <div class="tb-sep"></div>
-            <select id="fixture-select" style="flex:1 1 200px; width:auto; max-width:280px;" aria-label="Upcoming fixture"></select>
+            <select id="fixture-select" class="tb-select tb-select-fixture" aria-label="Upcoming fixture"></select>
           </div>
         </div>
 
@@ -750,10 +750,12 @@
       // Symbol header
       document.getElementById('sym-home').textContent = home;
       document.getElementById('sym-away').textContent = away;
+      // Each stat is one non-breaking run, separated by ordinary spaces, so a
+      // narrow screen wraps between stats and never mid-label ("HOME / ADV").
       document.getElementById('symbol-sub').innerHTML =
-        `ELO <b>${Math.round(p.Rh)}</b> · <b>${Math.round(p.Ra)}</b>` +
-        `&nbsp;&nbsp;HOME ADV <b>+${HOME_ADV}</b>` +
-        `&nbsp;&nbsp;GAP <b>${Math.round(p.Rh - p.Ra)}</b>`;
+        `<span class="ss-stat">ELO&nbsp;<b>${Math.round(p.Rh)}</b>&nbsp;·&nbsp;<b>${Math.round(p.Ra)}</b></span>` +
+        `<span class="ss-stat">HOME&nbsp;ADV&nbsp;<b>+${HOME_ADV}</b></span>` +
+        `<span class="ss-stat">GAP&nbsp;<b>${Math.round(p.Rh - p.Ra)}</b></span>`;
       document.getElementById('symbol-price').textContent = favPct + '%';
       document.getElementById('symbol-price-label').textContent = `${fav} favored`;
 

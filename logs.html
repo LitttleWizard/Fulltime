@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="terminal.css" />
   <script src="dixon-coles.js"></script>
   <script src="live.js"></script>
+  <script src="mobile-nav.js" defer></script>
   <style>
     /* ── Log rows ── */
     .log-row {
@@ -48,10 +49,27 @@
     }
     .log-flag.hit  { color: var(--up);   background: rgba(0,214,143,0.12); }
     .log-flag.miss { color: var(--down); background: rgba(245,69,92,0.12); }
+    /* Phone: three tight lines per entry instead of five loose ones.
+       Auto-placement put every field on its own row and stranded the verdict
+       at the bottom, so each entry ran ~230px tall and barely five fitted on
+       screen. Everything below is placed explicitly. */
     @media (max-width: 620px) {
-      .log-row { grid-template-columns: 40px minmax(0,1fr) 60px; row-gap: 4px; }
-      .log-date, .log-pick, .log-score { grid-column: 2 / -1; }
       .log-head { display: none; }
+      .log-row {
+        grid-template-columns: 40px minmax(0,1fr) auto;
+        row-gap: 2px; column-gap: 8px;
+        padding: 9px 14px;
+        align-items: center;
+      }
+      .log-lg    { grid-column: 1; grid-row: 1; }
+      .log-date  { grid-column: 2; grid-row: 1; }
+      .log-flag  { grid-column: 3; grid-row: 1 / span 2; align-self: center;
+                   min-width: 52px; padding: 4px 7px; }
+      .log-match { grid-column: 1 / 3; grid-row: 2; font-size: 13px; }
+      .log-pick  { grid-column: 1 / 3; grid-row: 3; }
+      .log-score { grid-column: 3;     grid-row: 3; text-align: right; }
+      /* the "NEW" tag sits under the verdict, not on its own line */
+      .log-new { display: block; }
     }
 
     /* ── Summary ── */
@@ -106,7 +124,7 @@
     <div id="app" class="terminal" style="display:none;">
 
       <!-- SUMMARY -->
-      <div class="term-col term-watchlist">
+      <div class="term-col term-watchlist" data-mtab="Record" data-mtab-icon="◆">
         <div class="panel-head">
           <div class="term-title">Track Record</div>
           <div class="term-tag">Walk-forward</div>
@@ -115,7 +133,7 @@
       </div>
 
       <!-- LOG -->
-      <div class="term-col term-center">
+      <div class="term-col term-center" data-mtab="Log" data-mtab-icon="▤">
         <div class="center-head" style="padding:0;">
           <div class="filter-row" id="filters">
             <div class="tb-btn is-on" data-f="all">All</div>
@@ -134,7 +152,7 @@
       </div>
 
       <!-- CALIBRATION -->
-      <div class="term-col term-quotes">
+      <div class="term-col term-quotes" data-mtab="Calibration" data-mtab-icon="◷">
         <div class="panel-head">
           <div class="term-title">Calibration</div>
           <div class="chart-tabs" id="cal-tabs" role="group" aria-label="Calibration source">
