@@ -89,6 +89,9 @@
     :root[data-theme="light"] .methodology code { background: var(--surface2); }
     :root[data-theme="light"] .trend-end-dot { stroke: var(--surface); }
     :root[data-theme="light"] .trend-gap { opacity: 0.10; }
+    :root[data-theme="light"] .wp-grid { stroke: #cbd5e1; }
+    :root[data-theme="light"] .wp-goal { stroke: #94a3b8; }
+    :root[data-theme="light"] .wp-dot { stroke: var(--surface); }
 
     /* ── Roster moves (context panel) ── */
     .ctx-note {
@@ -429,6 +432,17 @@
     .wp-caption { margin-top: 8px; font-size: 11px; color: var(--muted); line-height: 1.5; }
     .wp-caption b { color: var(--text); font-weight: 600; }
 
+
+    /* win-probability chart, Kalshi-style: real path, scale on the right */
+    .wp-grid { stroke: rgba(255,255,255,0.13); stroke-width: 1; stroke-dasharray: 2,4; }
+    .wp-axis-r { font-family:'JetBrains Mono',monospace; font-size:10px; fill: var(--muted); }
+    .wp-axis-x { font-family:'JetBrains Mono',monospace; font-size:10px; fill: var(--muted); }
+    .wp-line { fill:none; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+    .wp-dot { stroke: var(--bg); stroke-width: 2; }
+    .wp-goal { stroke: rgba(255,255,255,0.16); stroke-width:1; stroke-dasharray:2,3; }
+    .wp-tag { font-family:'JetBrains Mono',monospace; font-size:10.5px; font-weight:700; letter-spacing:.05em; }
+    .wp-val { font-size:19px; font-weight:800; letter-spacing:-0.02em; }
+
     /* ── Live match indicators ── */
     .ticker-row.is-live { background: rgba(240,80,110,0.07); box-shadow: inset 2px 0 0 var(--live); }
     .live-pill {
@@ -461,6 +475,11 @@
       font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 700; color: var(--text);
     }
     .live-banner .lb-note { font-size: 11px; color: var(--muted); }
+
+    .ticker-livefav {
+      font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600;
+      color: var(--live); margin-top: 3px;
+    }
 
     /* ── Fixtures ticker (right column) ── */
     #week-list { display: flex; flex-direction: column; }

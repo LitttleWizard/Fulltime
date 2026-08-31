@@ -769,86 +769,99 @@
     // a pro-rated rate. Live matches get a marker at the current minute.
     let chartView = 'elo';
 
+    // Goal timings for the live match, so the trace is the real path rather
+    // than a sample. Cached per event; refreshed alongside the score.
+    let goalTimeline = [];
+
     function renderWinProbChart(home, away, p, lv) {
       const box = document.getElementById('wp-chart');
       const inPlay = lv && lv.state === 'in';
-      const hs = inPlay ? lv.hs : 0, as = inPlay ? lv.as : 0;
-      const nowMin = inPlay ? Math.min(90, 90 - Live.minsLeft(lv)) : null;
+      const nowMin = inPlay ? Math.min(90, 90 - Live.minsLeft(lv)) : 0;
+      const abbr = t => (lv && (t === home ? lv.abbrHome : lv.abbrAway)) ||
+                        t.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
 
-      document.getElementById('wp-legend').innerHTML =
-        `<div class="legend-item"><span class="legend-swatch" style="background:var(--series-home)"></span>${home}</div>` +
-        `<div class="legend-item"><span class="legend-swatch" style="background:var(--draw)"></span>Draw</div>` +
-        `<div class="legend-item"><span class="legend-swatch" style="background:var(--series-away)"></span>${away}</div>`;
+      document.getElementById('wp-legend').innerHTML = '';
 
       const m = box.getBoundingClientRect();
       const W = Math.max(340, Math.round(m.width) || 520);
       const H = Math.max(200, Math.round(m.height) || 280);
-      const PAD_L = 36, PAD_R = 44, PAD_T = 14, PAD_B = 26;
+      const PAD_L = 8, PAD_R = 96, PAD_T = 16, PAD_B = 26;
+      const TAG_X = W - PAD_R + 8;      // team tag + big value
+      const AXIS_X = W - 4;             // scale, hard right
       const plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
-      const x = min => PAD_L + (min / 90) * plotW;
+      const endMin = Math.max(nowMin, 1);
+      const x = min => PAD_L + (min / endMin) * plotW;
       const y = f => PAD_T + (1 - f) * plotH;
 
+      // Walk kick-off -> now, applying goals as they happened. This is the true
+      // path the model would have shown minute by minute.
+      const scoreAt = min => {
+        let h = 0, a = 0;
+        for (const g of goalTimeline) {
+          if (g.min > min) break;
+          if (g.side === 'home') h++; else a++;
+        }
+        return [h, a];
+      };
       const pts = [];
-      for (let min = 0; min <= 90; min += 1.5) {
+      for (let min = 0; min <= endMin; min += 0.5) {
+        const [hs, as] = scoreAt(min);
         const w = Live.winProb(p.lh, p.la, hs, as, 90 - min);
         pts.push({ min, h: w.home, d: w.draw, a: w.away });
       }
-      const line = key => pts.map((q, i) =>
-        `${i ? 'L' : 'M'} ${x(q.min).toFixed(1)} ${y(q[key]).toFixed(1)}`).join(' ');
+      const line = k => pts.map((q, i) =>
+        `${i ? 'L' : 'M'} ${x(q.min).toFixed(1)} ${y(q[k]).toFixed(1)}`).join(' ');
 
-      // gridlines, matching the Elo chart's treatment
+      // dotted gridlines with the scale on the right
       const grid = [];
-      [0, 0.25, 0.5, 0.75, 1].forEach(f => {
+      [0, 0.2, 0.4, 0.6, 0.8].forEach(f => {
         const gy = y(f);
-        grid.push(`<line class="trend-gridline" x1="${PAD_L}" x2="${W - PAD_R}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"/>`);
-        grid.push(`<text class="trend-axis-label" x="${PAD_L - 6}" y="${(gy + 3).toFixed(1)}" text-anchor="end">${Math.round(f * 100)}%</text>`);
+        grid.push(`<line class="wp-grid" x1="${PAD_L}" x2="${(W - PAD_R).toFixed(1)}" y1="${gy.toFixed(1)}" y2="${gy.toFixed(1)}"/>`);
+        grid.push(`<text class="wp-axis-r" x="${AXIS_X.toFixed(1)}" y="${(gy + 3.5).toFixed(1)}" text-anchor="end">${Math.round(f * 100)}%</text>`);
       });
-      const xTicks = [0, 15, 30, 45, 60, 75, 90].map(min =>
-        `<text class="trend-axis-label" x="${x(min).toFixed(1)}" y="${(PAD_T + plotH + 15).toFixed(1)}" text-anchor="${min === 0 ? 'start' : min === 90 ? 'end' : 'middle'}">${min}'</text>`
-      ).join('');
 
-      // three thin lines, same weight as the Elo chart — no saturated blocks
-      const series = [
-        { k: 'h', c: 'var(--series-home)', name: home },
-        { k: 'd', c: 'var(--draw)',        name: 'Draw' },
-        { k: 'a', c: 'var(--series-away)', name: away }
-      ];
-      const lines = series.map(s2 => `<path class="trend-line" d="${line(s2.k)}" stroke="${s2.c}"/>`).join('');
-
-      // Label each line at the meaningful moment — the current minute for a live
-      // match, kick-off otherwise. Labelling at 90' would just read 100/0/0,
-      // since with no time left the current score decides it.
-      const markMin = nowMin != null ? nowMin : 0;
-      const markPt = pts.reduce((best, q) =>
-        Math.abs(q.min - markMin) < Math.abs(best.min - markMin) ? q : best, pts[0]);
-      const labelLeft = markMin > 60;                       // flip side near the right edge
-      const ends = series
-        .map(s2 => ({ ...s2, v: markPt[s2.k], yy: y(markPt[s2.k]) }))
-        .sort((a2, b2) => a2.yy - b2.yy)
-        .map((s2, i, arr) => {
-          if (i > 0 && s2.yy - arr[i - 1].yy < 13) s2.yy = arr[i - 1].yy + 13;
-          return `<circle class="trend-end-dot" r="3.6" cx="${x(markMin).toFixed(1)}" cy="${y(markPt[s2.k]).toFixed(1)}" fill="${s2.c}"/>` +
-                 `<text class="trend-end-label" x="${(x(markMin) + (labelLeft ? -8 : 8)).toFixed(1)}" y="${(s2.yy + 3.5).toFixed(1)}" ` +
-                 `text-anchor="${labelLeft ? 'end' : 'start'}" fill="${s2.c}">${Math.round(s2.v * 100)}%</text>`;
-        }).join('');
-
-      let nowEls = '';
-      if (nowMin != null) {
-        nowEls =
-          `<line class="wp-now" x1="${x(nowMin).toFixed(1)}" x2="${x(nowMin).toFixed(1)}" y1="${PAD_T}" y2="${(PAD_T + plotH).toFixed(1)}"/>` +
-          `<text class="wp-now-label" x="${x(nowMin).toFixed(1)}" y="${(PAD_T - 3).toFixed(1)}" text-anchor="middle">${Math.round(nowMin)}'</text>`;
+      // time ticks along the bottom
+      const step = endMin <= 20 ? 5 : endMin <= 50 ? 10 : 15;
+      const xTicks = [];
+      for (let min = 0; min <= endMin; min += step) {
+        xTicks.push(`<text class="wp-axis-x" x="${x(min).toFixed(1)}" y="${(PAD_T + plotH + 15).toFixed(1)}" text-anchor="${min === 0 ? 'start' : 'middle'}">${min}'</text>`);
       }
 
+      // a faint rule at each goal, so jumps in the line are explained
+      const goalMarks = goalTimeline.filter(g => g.min <= endMin).map(g =>
+        `<line class="wp-goal" x1="${x(g.min).toFixed(1)}" x2="${x(g.min).toFixed(1)}" y1="${PAD_T}" y2="${(PAD_T + plotH).toFixed(1)}"/>`
+      ).join('');
+
+      const series = [
+        { k: 'h', c: 'var(--series-home)', label: abbr(home) },
+        { k: 'd', c: 'var(--draw)',        label: 'TIE' },
+        { k: 'a', c: 'var(--series-away)', label: abbr(away) }
+      ];
+      const lines = series.map(s2 => `<path class="wp-line" d="${line(s2.k)}" stroke="${s2.c}"/>`).join('');
+
+      // big value block on the right, Kalshi-style, nudged apart if they collide
+      const last = pts[pts.length - 1];
+      const placed = series
+        .map(s2 => ({ ...s2, v: last[s2.k], yy: y(last[s2.k]) }))
+        .sort((a2, b2) => a2.yy - b2.yy);
+      for (let i = 1; i < placed.length; i++) {
+        if (placed[i].yy - placed[i - 1].yy < 34) placed[i].yy = placed[i - 1].yy + 34;
+      }
+      const ends = placed.map(s2 =>
+        `<circle class="wp-dot" r="3.8" cx="${x(last.min).toFixed(1)}" cy="${y(s2.v).toFixed(1)}" fill="${s2.c}"/>` +
+        `<text class="wp-tag" x="${TAG_X.toFixed(1)}" y="${(s2.yy - 4).toFixed(1)}" fill="${s2.c}">${s2.label}</text>` +
+        `<text class="wp-val" x="${TAG_X.toFixed(1)}" y="${(s2.yy + 15).toFixed(1)}" fill="${s2.c}">${Math.round(s2.v * 100)}%</text>`
+      ).join('');
+
       box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-          ${grid.join('')}${xTicks}${nowEls}${lines}${ends}
+          ${grid.join('')}${goalMarks}${xTicks.join('')}${lines}${ends}
         </svg>`;
 
-      const cur = Live.winProb(p.lh, p.la, hs, as, inPlay ? Live.minsLeft(lv) : 90);
+      const gl = goalTimeline.length;
       document.getElementById('wp-caption').innerHTML = inPlay
-        ? `Live at <b>${hs}–${as}</b>, ${Live.minsLeft(lv)} min left — <b>${(cur.home*100).toFixed(0)}%</b> ${home},
-           <b>${(cur.draw*100).toFixed(0)}%</b> draw, <b>${(cur.away*100).toFixed(0)}%</b> ${away}.
-           Lines show where each outcome heads if the score stays as it is.`
-        : `Not in play — the shape from <b>0–0</b>: how each outcome moves as a goalless match runs down.`;
+        ? `Live path from kick-off to <b>${Math.round(nowMin)}'</b> at <b>${lv.hs}–${lv.as}</b>` +
+          (gl ? `, rebuilt from the ${gl} goal${gl > 1 ? 's' : ''} as they went in.` : ' — goalless so far.')
+        : `Not in play. This is the pre-match shape from <b>0–0</b> — where each outcome heads if nobody scores.`;
     }
 
     function setChartView(v) {
@@ -877,6 +890,14 @@
       const next = Object.create(null);
       evs.forEach(e => { next[liveKey(e.home, e.away)] = e; });
       liveByKey = next;
+
+      // Pull goal timings for the selected match so the win-prob trace is the
+      // real path. Cheap: one extra request, only while a match is in play.
+      const sel = liveFor(homeSelect.value, awaySelect.value);
+      goalTimeline = (sel && sel.state === 'in')
+        ? await Live.timeline('epl', sel.id, sel.rawHome)
+        : [];
+
       const anyLive = evs.some(e => e.state === 'in');
       const badge = document.querySelector('.term-tag.live');
       if (badge) badge.textContent = anyLive ? 'LIVE NOW' : 'Live';
@@ -910,15 +931,23 @@
 
       listEl.innerHTML = list.map((m, i) => {
         const p = predict(elo.ratings, elo.history, shotsData, leagueAvg, m.team1, m.team2);
-        const hPct = Math.round(p.homeWin * 100);
-        const dPct = Math.round(p.draw * 100);
-        const aPct = Math.round(p.awayWin * 100);
-        const dateLabel = m.time ? `${m.date} · ${m.time}` : m.date;
-        const favTeam = p.homeWin >= p.awayWin ? m.team1 : m.team2;
-        const favPct = Math.max(hPct, aPct);
-        const isToday = m.date === todayStr;
         const lv = liveFor(m.team1, m.team2);
         const isLive = lv && lv.state === 'in';
+
+        // A live row shows live odds: re-price from the current score and the
+        // time left, so the bar tracks the match rather than the pre-match call.
+        const shown = isLive
+          ? (w => ({ homeWin: w.home, draw: w.draw, awayWin: w.away }))
+              (Live.winProb(p.lh, p.la, lv.hs, lv.as, Live.minsLeft(lv)))
+          : p;
+
+        const hPct = Math.round(shown.homeWin * 100);
+        const dPct = Math.round(shown.draw * 100);
+        const aPct = Math.round(shown.awayWin * 100);
+        const dateLabel = m.time ? `${m.date} · ${m.time}` : m.date;
+        const favTeam = shown.homeWin >= shown.awayWin ? m.team1 : m.team2;
+        const favPct = Math.max(hPct, aPct);
+        const isToday = m.date === todayStr;
         return `
           <button type="button" class="ticker-row${isLive ? ' is-live' : ''}" data-idx="${upcomingFixtures.indexOf(m)}">
             <div class="ticker-top">
@@ -928,6 +957,9 @@
               ${isLive
                 ? `<span class="live-score">${lv.hs}–${lv.as}</span>`
                 : `<span class="ticker-fav">${favTeam} ${favPct}%</span>`}
+            </div>
+            ${isLive ? `<div class="ticker-livefav">${favTeam} ${favPct}% · live</div>` : ''}
+            <div style="display:none;">
             </div>
             <div class="ticker-matchup">${m.team1}<span style="color:var(--muted);font-weight:400;"> vs </span>${m.team2}</div>
             <div class="week-stack" style="margin-top:6px;">

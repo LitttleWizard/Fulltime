@@ -47,6 +47,7 @@
         const st = (c.status || {});
         const type = st.type || {};
         let home = null, away = null, hs = null, as = null;
+        let abbrHome = null, abbrAway = null, rawHome = null, rawAway = null;
         for (const t of (c.competitors || [])) {
           const raw = league === 'nfl'
             ? (t.team && t.team.abbreviation)
@@ -55,12 +56,14 @@
             ? (NFL_FIX[raw] || raw)
             : (EPL_FIX[raw] || raw);
           const score = t.score == null || t.score === '' ? null : parseInt(t.score, 10);
-          if (t.homeAway === 'home') { home = name; hs = score; }
-          else { away = name; as = score; }
+          const abbr = (t.team && t.team.abbreviation) || '';
+          const disp = (t.team && t.team.displayName) || '';
+          if (t.homeAway === 'home') { home = name; hs = score; abbrHome = abbr; rawHome = disp; }
+          else { away = name; as = score; abbrAway = abbr; rawAway = disp; }
         }
         if (!home || !away) continue;
         out.push({
-          home, away, hs, as,
+          id: ev.id, home, away, hs, as, abbrHome, abbrAway, rawHome, rawAway,
           state: type.state || 'pre',            // pre | in | post
           detail: type.shortDetail || '',
           clock: st.displayClock || '',
@@ -120,5 +123,36 @@
     return Math.max(0, 90 - Math.min(elapsed, 90));
   }
 
-  global.Live = { fetch: fetchLive, winProb, minsLeft };
+  /**
+   * Goal timings for one match, so the probability path can be rebuilt exactly
+   * rather than sampled. ESPN puts them in `keyEvents` with scoringPlay: true.
+   * Returns [{ min, side: 'home' | 'away' }] sorted by minute.
+   */
+  async function timeline(league, eventId, rawHome) {
+    const path = PATHS[league];
+    if (!path || !eventId) return [];
+    try {
+      const r = await fetch(`${ESPN}/${path}/summary?event=${encodeURIComponent(eventId)}`,
+                            { cache: 'no-store' });
+      if (!r.ok) return [];
+      const d = await r.json();
+      const goals = [];
+      for (const e of (d.keyEvents || [])) {
+        if (!e.scoringPlay) continue;
+        // clock reads like "24'" or "45'+4'" — the leading number is the minute
+        const disp = (e.clock && e.clock.displayValue) || '';
+        const m = /(\d+)/.exec(disp);
+        if (!m) continue;
+        const team = (e.team && e.team.displayName) || '';
+        goals.push({ min: Math.min(90, parseInt(m[1], 10)),
+                     side: team && rawHome && team === rawHome ? 'home' : 'away' });
+      }
+      goals.sort((a, b) => a.min - b.min);
+      return goals;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  global.Live = { fetch: fetchLive, winProb, minsLeft, timeline };
 })(window);
