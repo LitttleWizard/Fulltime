@@ -90,6 +90,33 @@
     :root[data-theme="light"] .trend-end-dot { stroke: var(--surface); }
     :root[data-theme="light"] .trend-gap { opacity: 0.10; }
 
+    /* ── Roster moves (context panel) ── */
+    .ctx-note {
+      font-family: 'Inter', sans-serif; font-size: 10.5px; font-weight: 400;
+      letter-spacing: 0; text-transform: none; color: var(--muted);
+      margin-left: 8px;
+    }
+    .moves-col .moves-team {
+      font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px;
+    }
+    .move-row {
+      display: flex; align-items: baseline; gap: 8px;
+      padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+    }
+    .move-row:last-child { border-bottom: none; }
+    .move-dir {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+      width: 26px; flex-shrink: 0;
+    }
+    .move-dir.in  { color: var(--up); }
+    .move-dir.out { color: var(--down); }
+    .move-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .move-meta {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      color: var(--muted); flex-shrink: 0;
+    }
+    .moves-empty { font-size: 12px; color: var(--muted); }
+
     /* ── Theme toggle ── */
     .theme-btn {
       display: inline-flex; align-items: center; justify-content: center;

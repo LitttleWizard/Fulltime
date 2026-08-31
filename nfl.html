@@ -130,6 +130,11 @@
           </div>
 
           <div class="center-section">
+            <div class="card-title">Roster Moves <span class="ctx-note">context only — not a model input</span></div>
+            <div class="duo" id="moves"></div>
+          </div>
+
+          <div class="center-section">
             <div class="card-title">How This Works</div>
             <div class="methodology" id="methodology"></div>
           </div>
@@ -259,6 +264,62 @@
         localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), games }));
       } catch (e) { /* storage full, fine */ }
       return games;
+    }
+
+    // ── Roster moves ───────────────────────────────────────────────────────
+    // Trades are shown as context, deliberately NOT fed into the model: tested
+    // in trade_test.py, raw trade counts gain +0.0003 on the holdout (net) and
+    // fail to generalise (total activity helps the holdout but not the training
+    // era — noise, not signal). Counting bodies ignores player quality, and the
+    // roster file that carried player value is stale after 2019.
+    const TRADES_URL = 'https://raw.githubusercontent.com/nflverse/nfldata/master/data/trades.csv';
+    const TRADES_KEY = 'nfl-trades-cache-v1';
+
+    async function loadTrades() {
+      try {
+        const c = localStorage.getItem(TRADES_KEY);
+        if (c) {
+          const p = JSON.parse(c);
+          if (Date.now() - p.ts < CACHE_TTL && p.trades) return p.trades;
+        }
+      } catch (e) { /* ignore */ }
+      try {
+        const r = await fetch(TRADES_URL);
+        if (!r.ok) return [];
+        const trades = parseCSV(await r.text())
+          .filter(t => (t.pfr_name || '').trim())          // player moves only
+          .map(t => ({
+            date: t.trade_date || '', season: parseInt(t.season, 10) || 0,
+            name: t.pfr_name.trim(), gave: t.gave, received: t.received
+          }))
+          .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+        try { localStorage.setItem(TRADES_KEY, JSON.stringify({ ts: Date.now(), trades })); }
+        catch (e) { /* storage full */ }
+        return trades;
+      } catch (e) { return []; }
+    }
+
+    function renderMoves(home, away) {
+      const el = document.getElementById('moves');
+      if (!el) return;
+      const col = team => {
+        const rows = trades
+          .filter(t => t.received === team || t.gave === team)
+          .slice(-6).reverse();
+        const body = rows.length
+          ? rows.map(t => {
+              const incoming = t.received === team;
+              return `
+                <div class="move-row">
+                  <span class="move-dir ${incoming ? 'in' : 'out'}">${incoming ? 'IN' : 'OUT'}</span>
+                  <span class="move-name">${t.name}</span>
+                  <span class="move-meta">${incoming ? 'from ' + t.gave : 'to ' + t.received} · ${t.date.slice(0, 7)}</span>
+                </div>`;
+            }).join('')
+          : '<div class="moves-empty">No player trades on record.</div>';
+        return `<div class="moves-col"><div class="moves-team">${teamName(team)}</div>${body}</div>`;
+      };
+      el.innerHTML = col(away) + col(home);
     }
 
     // ── Elo ────────────────────────────────────────────────────────────────
@@ -420,9 +481,9 @@
     }
 
     // ── Main ───────────────────────────────────────────────────────────────
-    let games, elo, teams, upcoming;
+    let games, elo, teams, upcoming, trades = [];
     try {
-      games = await loadGames();
+      [games, trades] = await Promise.all([loadGames(), loadTrades()]);
       loadingStatus.textContent = 'Building Elo ratings…';
       elo = computeElo(games);
       const latestSeason = Math.max(...games.map(g => g.season));
@@ -602,6 +663,7 @@
       document.getElementById('h2h').textContent = h2hSummary(elo.history, home, away);
 
       renderWatchlist();
+      renderMoves(home, away);
       renderTrendChart(elo, home, away);
     }
 
