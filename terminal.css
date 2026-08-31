@@ -403,6 +403,39 @@
     .quote-stat-row .k { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .quote-stat-row .v { font-family: 'JetBrains Mono', monospace; color: var(--text); font-weight: 500; flex-shrink: 0; }
 
+    /* ── Live match indicators ── */
+    .ticker-row.is-live { background: rgba(240,80,110,0.07); box-shadow: inset 2px 0 0 var(--live); }
+    .live-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-family: 'JetBrains Mono', monospace; font-size: 9.5px; font-weight: 700;
+      letter-spacing: .05em; color: var(--live);
+      background: rgba(240,80,110,0.12); border: 1px solid rgba(240,80,110,0.4);
+      border-radius: 100px; padding: 2px 7px;
+    }
+    .live-pill .blip {
+      width: 5px; height: 5px; border-radius: 50%; background: var(--live);
+      animation: blip 1.6s ease-in-out infinite;
+    }
+    @keyframes blip { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+    @media (prefers-reduced-motion: reduce) { .live-pill .blip { animation: none; } }
+
+    .live-score {
+      font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+      font-weight: 700; color: var(--text);
+    }
+
+    /* in-play banner above the win-probability block */
+    .live-banner {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; flex-wrap: wrap;
+      background: rgba(240,80,110,0.08); border: 1px solid rgba(240,80,110,0.32);
+      border-radius: 10px; padding: 9px 13px; margin-bottom: 12px;
+    }
+    .live-banner .lb-score {
+      font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 700; color: var(--text);
+    }
+    .live-banner .lb-note { font-size: 11px; color: var(--muted); }
+
     /* ── Fixtures ticker (right column) ── */
     #week-list { display: flex; flex-direction: column; }
     .ticker-row {

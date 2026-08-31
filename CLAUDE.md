@@ -55,3 +55,19 @@ This project's history and reasoning live in Obsidian at
   After making a meaningful change in a session, append a short dated entry here
   describing what changed and why (not just what — the mechanical diff is already
   in Changelog.md).
+
+## Live scores (`live.js`)
+
+ESPN's public scoreboard endpoint, no key, `access-control-allow-origin: *` on the
+first hop. Undocumented and unsupported, so every failure path is silent — if it
+breaks the page shows no live badge rather than erroring.
+
+- **Team naming**: ESPN's EPL `displayName` matches our canonical names once the
+  trailing FC/AFC is stripped. NFL needs exactly two fixes: `LAR→LA`, `WSH→WAS`.
+- **In-play win probability is EPL only.** Dixon-Coles already yields expected
+  goals, so remaining goals over remaining time are Poisson at a pro-rated rate —
+  the pre-match model extends to in-play with no new data. NFL has no equivalent:
+  points come in 7s and 3s and possession dominates late, which needs an
+  empirical play-by-play model (and nflverse play-by-play is CORS-blocked).
+- It ignores game state effects (teams protect leads), red cards, and real
+  stoppage time. Sound baseline, not a betting model.

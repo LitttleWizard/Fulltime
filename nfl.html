@@ -15,6 +15,7 @@
   <script src="theme.js"></script>
   <link rel="stylesheet" href="terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
+  <script src="live.js"></script>
   <script src="trend-chart.js"></script>
   <script src="mobile-nav.js" defer></script>
   <!-- Prerender the sibling tab on hover so switching leagues is instant:
@@ -738,6 +739,21 @@
       renderTrendChart(elo, home, away);
     }
 
+    // Live scores (ESPN). Additive only — silent no-op if the feed is down.
+    let liveByKey = Object.create(null);
+    const liveKey = (h, a) => `${h}|${a}`;
+    const liveFor = (h, a) => liveByKey[liveKey(h, a)] || null;
+
+    async function refreshLive() {
+      const evs = await Live.fetch('nfl');
+      const next = Object.create(null);
+      evs.forEach(e => { next[liveKey(e.home, e.away)] = e; });
+      liveByKey = next;
+      const badge = document.querySelector('.term-tag.live');
+      if (badge) badge.textContent = evs.some(e => e.state === 'in') ? 'LIVE NOW' : 'Live';
+      renderWeekList();
+    }
+
     function renderWeekList() {
       const listEl = document.getElementById('week-list');
       const list = upcoming.slice(0, 24);
@@ -750,11 +766,17 @@
         const p = predict(elo, g.home, g.away, null, g);
         const hPct = Math.round(p.homeWin * 100), aPct = 100 - hPct;
         const favHome = p.homeWin >= 0.5;
+        const lv = liveFor(g.home, g.away);
+        const isLive = lv && lv.state === 'in';
         return `
-          <button type="button" class="ticker-row" data-idx="${i}">
+          <button type="button" class="ticker-row${isLive ? ' is-live' : ''}" data-idx="${i}">
             <div class="ticker-top">
-              <span class="ticker-date">${g.date === todayStr ? 'TODAY' : g.date} · WK ${g.week}</span>
-              <span class="ticker-fav">${favHome ? g.home : g.away} ${Math.max(hPct, aPct)}%</span>
+              ${isLive
+                ? `<span class="live-pill"><span class="blip"></span>LIVE Q${lv.period} ${lv.clock || ''}</span>`
+                : `<span class="ticker-date">${g.date === todayStr ? 'TODAY' : g.date} · WK ${g.week}</span>`}
+              ${isLive
+                ? `<span class="live-score">${lv.as}–${lv.hs}</span>`
+                : `<span class="ticker-fav">${favHome ? g.home : g.away} ${Math.max(hPct, aPct)}%</span>`}
             </div>
             <div class="ticker-matchup">${g.away}<span style="color:var(--muted);font-weight:400;"> @ </span>${g.home}</div>
             <div class="week-stack" style="margin-top:6px;">
@@ -831,6 +853,9 @@
 
     render();
     renderWeekList();
+    refreshLive();
+    setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive(); });
     loadingEl.style.display = 'none';
     appEl.style.display = 'grid';
   })();

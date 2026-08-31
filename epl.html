@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
   <script src="dixon-coles.js"></script>
+  <script src="live.js"></script>
   <script src="trend-chart.js"></script>
   <script src="mobile-nav.js" defer></script>
   <!-- Prerender the sibling tab on hover so switching leagues is instant:
@@ -113,6 +114,7 @@
 
             <div>
               <div class="card-title">Win Probability</div>
+              <div class="live-banner" id="live-banner" style="display:none;"></div>
               <div class="prob-row">
                 <div class="prob-label" id="label-home">Home</div>
                 <div class="prob-track"><div class="prob-fill home" id="bar-home" style="width:0%"></div></div>
@@ -646,17 +648,40 @@
       const home = homeSelect.value, away = awaySelect.value;
       const p = predict(elo.ratings, elo.history, shotsData, leagueAvg, home, away);
 
+      // If this match is in play, re-price it from the current score and the
+      // time left. Dixon-Coles already gives expected goals, so the goals still
+      // to come are Poisson at a pro-rated rate — no new model needed.
+      const lv = liveFor(home, away);
+      const inPlay = lv && lv.state === 'in';
+      let shown = { homeWin: p.homeWin, draw: p.draw, awayWin: p.awayWin };
+      if (inPlay) {
+        const left = Live.minsLeft(lv);
+        const w = Live.winProb(p.lh, p.la, lv.hs, lv.as, left);
+        shown = { homeWin: w.home, draw: w.draw, awayWin: w.away };
+      }
+
+      const banner = document.getElementById('live-banner');
+      if (banner) {
+        banner.style.display = inPlay ? 'flex' : 'none';
+        if (inPlay) {
+          banner.innerHTML =
+            `<span class="live-pill"><span class="blip"></span>LIVE ${lv.clock || ''}</span>` +
+            `<span class="lb-score">${home} ${lv.hs}–${lv.as} ${away}</span>` +
+            `<span class="lb-note">in-play — ${Live.minsLeft(lv)} min left</span>`;
+        }
+      }
+
       document.getElementById('label-home').textContent = home;
       document.getElementById('label-away').textContent = away;
-      document.getElementById('bar-home').style.width = (p.homeWin * 100).toFixed(1) + '%';
-      document.getElementById('bar-draw').style.width = (p.draw * 100).toFixed(1) + '%';
-      document.getElementById('bar-away').style.width = (p.awayWin * 100).toFixed(1) + '%';
-      document.getElementById('pct-home').textContent = Math.round(p.homeWin * 100) + '%';
-      document.getElementById('pct-draw').textContent = Math.round(p.draw * 100) + '%';
-      document.getElementById('pct-away').textContent = Math.round(p.awayWin * 100) + '%';
+      document.getElementById('bar-home').style.width = (shown.homeWin * 100).toFixed(1) + '%';
+      document.getElementById('bar-draw').style.width = (shown.draw * 100).toFixed(1) + '%';
+      document.getElementById('bar-away').style.width = (shown.awayWin * 100).toFixed(1) + '%';
+      document.getElementById('pct-home').textContent = Math.round(shown.homeWin * 100) + '%';
+      document.getElementById('pct-draw').textContent = Math.round(shown.draw * 100) + '%';
+      document.getElementById('pct-away').textContent = Math.round(shown.awayWin * 100) + '%';
 
-      const fav = p.homeWin > p.awayWin ? home : away;
-      const favPct = Math.round(Math.max(p.homeWin, p.awayWin) * 100);
+      const fav = shown.homeWin > shown.awayWin ? home : away;
+      const favPct = Math.round(Math.max(shown.homeWin, shown.awayWin) * 100);
       document.getElementById('verdict').innerHTML = `
         <div class="verdict-main">
           <span class="verdict-team">${fav}</span>
@@ -722,6 +747,25 @@
     }
 
     // This week's fixtures
+    // ── Live scores (ESPN) ────────────────────────────────────────────────
+    // Purely additive: if the feed is unavailable, liveByKey stays empty and
+    // every render below behaves exactly as it did before.
+    let liveByKey = Object.create(null);
+    const liveKey = (h, a) => `${h}|${a}`;
+    const liveFor = (h, a) => liveByKey[liveKey(h, a)] || null;
+
+    async function refreshLive() {
+      const evs = await Live.fetch('epl');
+      const next = Object.create(null);
+      evs.forEach(e => { next[liveKey(e.home, e.away)] = e; });
+      liveByKey = next;
+      const anyLive = evs.some(e => e.state === 'in');
+      const badge = document.querySelector('.term-tag.live');
+      if (badge) badge.textContent = anyLive ? 'LIVE NOW' : 'Live';
+      renderWeekList();
+      render();
+    }
+
     function renderWeekList() {
       const todayStr = new Date().toISOString().slice(0, 10);
       const weekEnd = new Date();
@@ -755,11 +799,17 @@
         const favTeam = p.homeWin >= p.awayWin ? m.team1 : m.team2;
         const favPct = Math.max(hPct, aPct);
         const isToday = m.date === todayStr;
+        const lv = liveFor(m.team1, m.team2);
+        const isLive = lv && lv.state === 'in';
         return `
-          <button type="button" class="ticker-row" data-idx="${upcomingFixtures.indexOf(m)}">
+          <button type="button" class="ticker-row${isLive ? ' is-live' : ''}" data-idx="${upcomingFixtures.indexOf(m)}">
             <div class="ticker-top">
-              <span class="ticker-date">${isToday ? 'TODAY' : dateLabel}</span>
-              <span class="ticker-fav">${favTeam} ${favPct}%</span>
+              ${isLive
+                ? `<span class="live-pill"><span class="blip"></span>LIVE ${lv.clock || ''}</span>`
+                : `<span class="ticker-date">${isToday ? 'TODAY' : dateLabel}</span>`}
+              ${isLive
+                ? `<span class="live-score">${lv.hs}–${lv.as}</span>`
+                : `<span class="ticker-fav">${favTeam} ${favPct}%</span>`}
             </div>
             <div class="ticker-matchup">${m.team1}<span style="color:var(--muted);font-weight:400;"> vs </span>${m.team2}</div>
             <div class="week-stack" style="margin-top:6px;">
@@ -838,6 +888,10 @@
 
     render();
     renderWeekList();
+    // Live scores load after first paint and refresh while the tab is visible.
+    refreshLive();
+    setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive(); });
     loadingEl.style.display = 'none';
     appEl.style.display = 'grid';
   })();
