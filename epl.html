@@ -125,6 +125,14 @@
                 <div class="trend-svg-box" id="wp-chart"></div>
                 <div class="wp-caption" id="wp-caption"></div>
               </div>
+
+              <!-- Sits under the plot, filling the space the chart cell used to
+                   leave empty against its taller neighbour. -->
+              <div class="metric-compare">
+                <div class="card-title">Form Comparison — Last 8 Matches</div>
+                <div class="chart-legend" id="metric-legend"></div>
+                <div id="metric-bars"></div>
+              </div>
             </div>
 
             <div>
@@ -154,14 +162,6 @@
                 <div class="stat-col" id="stat-away"></div>
               </div>
               <div class="h2h-line" id="h2h"></div>
-            </div>
-          </div>
-
-          <div class="center-section">
-            <div class="metric-compare">
-              <div class="card-title">Form Comparison — Last 8 Matches</div>
-              <div class="chart-legend" id="metric-legend"></div>
-              <div id="metric-bars"></div>
             </div>
           </div>
 
@@ -970,17 +970,95 @@
       const sel = liveFor(homeSelect.value, awaySelect.value);
       if (!sel || (sel.state !== 'in' && sel.state !== 'post')) {
         goalTimeline = [];
-        matchDetail = null;
+        await loadExpectedXI();
         return;
       }
       const want = sel.id;
+      const forHome = homeSelect.value, forAway = awaySelect.value;
       const d = await Live.detail('epl', sel.id, sel.rawHome);
       // The selection can move while the request is in flight; a late response
       // for a match the user has navigated away from must not overwrite it.
       const now = liveFor(homeSelect.value, awaySelect.value);
       if (!now || now.id !== want) return;
       goalTimeline = sel.state === 'in' ? d.goals : [];
-      matchDetail = d;
+      // Stamped with the fixture it describes, so the renderers can refuse to
+      // draw one match's lineup under another's heading.
+      matchDetail = Object.assign({ eventId: want, home: forHome, away: forAway }, d);
+    }
+
+    /**
+     * No published lineup for this fixture, which is the normal case until
+     * about an hour before kickoff. Stand in the last XI each club actually
+     * fielded so the sheet still changes with the selected match — flagged as
+     * expected, so it is never mistaken for a confirmed team.
+     */
+    async function loadExpectedXI() {
+      const home = homeSelect.value, away = awaySelect.value;
+      matchDetail = null;
+      const [lh, la] = await Promise.all([
+        Live.lastLineup('epl', home), Live.lastLineup('epl', away)
+      ]);
+      if (homeSelect.value !== home || awaySelect.value !== away) return;
+      if (!lh || !la) return;
+      matchDetail = {
+        home, away, expected: true, feed: [],
+        lineups: {
+          home: lh.names, away: la.names,
+          formation: { home: lh.formation, away: la.formation }
+        },
+        source: { home: lh, away: la }
+      };
+    }
+
+    /* ── Auto-advance ──────────────────────────────────────────────────────
+     *
+     * When the match on screen reaches full time, move on to the next fixture
+     * instead of leaving a finished one up. Deliberately narrow: it only fires
+     * on a live -> finished transition of the match the user is actually
+     * watching, so selecting a past match on purpose does not bounce away.
+     */
+    let watchedKey = null, watchedState = null, advanceTimer = null;
+    const ADVANCE_DELAY = 15000;      // let the full-time result be seen first
+
+    /**
+     * The next fixture to move on to, taken in list order from the one on
+     * screen rather than by date: openfootball publishes results hours late,
+     * so its unplayed list still carries past dates and a date filter here
+     * would match nothing and silently disable advancing altogether.
+     */
+    function nextFixtureIndex() {
+      const cur = homeSelect.value + '|' + awaySelect.value;
+      const from = upcomingFixtures.findIndex(m => `${m.team1}|${m.team2}` === cur);
+      for (let i = from + 1; i < upcomingFixtures.length; i++) {
+        const m = upcomingFixtures[i];
+        const lv = liveFor(m.team1, m.team2);
+        if (lv && lv.state === 'post') continue;        // already played out
+        return i;
+      }
+      return -1;
+    }
+
+    function maybeAdvance() {
+      const key = liveKey(homeSelect.value, awaySelect.value);
+      const sel = liveFor(homeSelect.value, awaySelect.value);
+      const state = sel ? sel.state : null;
+      const was = watchedKey === key ? watchedState : null;
+      watchedKey = key; watchedState = state;
+      if (was !== 'in' || state !== 'post' || advanceTimer) return;
+
+      const from = key;
+      advanceTimer = setTimeout(() => {
+        advanceTimer = null;
+        // The user may have moved on themselves while the timer ran.
+        if (liveKey(homeSelect.value, awaySelect.value) !== from) return;
+        const i = nextFixtureIndex();
+        if (i < 0) return;
+        const m = upcomingFixtures[i];
+        homeSelect.value = m.team1;
+        awaySelect.value = m.team2;
+        fixtureSelect.value = i < 40 ? String(i) : '';
+        selectionChanged();
+      }, ADVANCE_DELAY);
     }
 
     async function refreshLive() {
@@ -989,6 +1067,7 @@
       evs.forEach(e => { next[liveKey(e.home, e.away)] = e; });
       liveByKey = next;
 
+      maybeAdvance();
       await refreshDetail();
 
       const anyLive = evs.some(e => e.state === 'in');
@@ -1009,8 +1088,15 @@
      * Measured at +0.0003 log-loss over 340 matches — real in sign, negligible
      * in size. It is shown because it is useful to see, and labelled honestly.
      */
+    /** The cached detail, but only if it describes this exact fixture. */
+    function detailFor(home, away) {
+      const d = matchDetail;
+      return (d && d.home === home && d.away === away) ? d : null;
+    }
+
     function lineupDeltas(home, away) {
-      const lu = matchDetail && matchDetail.lineups;
+      const d = detailFor(home, away);
+      const lu = d && d.lineups;
       if (!lu || typeof Players === 'undefined') return null;
       const xh = Players.xi(home, lu.home), xa = Players.xi(away, lu.away);
       if (!xh || !xa) return null;
@@ -1030,13 +1116,18 @@
         return `<div class="ts-row ${cls}"><span class="ts-name">${esc(r.name)}</span>` +
                `<span class="ts-ovr">${ovr}</span></div>`;
       }).join('');
-      const d = delta == null ? null : delta;
+      const d = delta;
       const dTxt = d == null ? ''
         : `<span class="ts-delta ${d < -0.15 ? 'neg' : d > 0.15 ? 'pos' : ''}">` +
           `${d >= 0 ? '+' : ''}${d.toFixed(2)} vs norm</span>`;
+      // A club absent from the ratings snapshot still gets its roster shown;
+      // only the numbers are withheld.
+      const meta = info.strength == null
+        ? '<span class="ts-norate">not in ratings snapshot</span>'
+        : `XI ${info.strength.toFixed(1)} ${dTxt}`;
       return `<div class="ts-head"><span class="ts-team">${esc(team)}</span>` +
              `<span class="ts-form">${esc(formation || '')}</span></div>` +
-             `<div class="ts-meta">XI ${info.strength.toFixed(1)} ${dTxt}</div>` +
+             `<div class="ts-meta">${meta}</div>` +
              rows;
     }
 
@@ -1050,12 +1141,22 @@
       document.getElementById('sheet-away').innerHTML =
         sheetCol(away, sheet.xa, sheet.da, sheet.formation.away);
 
-      const snap = Players.snapshot ? Players.snapshot() : null;
-      document.getElementById('sheet-note').textContent =
-        'EA FC 26 ratings' + (snap ? ` · snapshot ${snap}` : '');
+      const d = detailFor(home, away);
+      const exp = d && d.expected;
+      const src = exp && d.source;
+      document.getElementById('sheet-note').textContent = exp
+        ? `Expected XI — last fielded ${src.home.date} / ${src.away.date}`
+        : 'Confirmed lineup';
 
       const un = sheet.xh.unrated + sheet.xa.unrated;
-      document.getElementById('sheet-foot').innerHTML =
+      const snap = Players.snapshot ? Players.snapshot() : null;
+      const provenance = exp
+        ? 'These are each club’s most recent starting XI, not a confirmed team — ' +
+          'ESPN publishes the real lineup about an hour before kickoff, and this ' +
+          'switches to it automatically once it lands. '
+        : '';
+      document.getElementById('sheet-foot').innerHTML = provenance +
+        `EA FC 26 ratings${snap ? `, snapshot ${snap}. ` : '. '}` +
         'Ratings shift the pre-match price only, and only slightly — measured at ' +
         '+0.0003 log-loss across 340 matches. Dixon-Coles already reads team ' +
         'strength from results; the one thing it cannot see is a side fielding a ' +
@@ -1078,7 +1179,8 @@
     function renderFeed(home, away) {
       const sec = document.getElementById('feed-section');
       if (!sec) return;
-      const feed = (matchDetail && matchDetail.feed || []).filter(e => (e.text || '').trim());
+      const d = detailFor(home, away);
+      const feed = ((d && d.feed) || []).filter(e => (e.text || '').trim());
       if (!feed.length) { sec.style.display = 'none'; return; }
       sec.style.display = '';
 

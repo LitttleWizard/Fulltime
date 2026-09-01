@@ -113,17 +113,26 @@
     return SOFT * Math.log(s);
   }
 
+  /**
+   * Rate a starting XI.
+   *
+   * Always returns the roster, even when the club is absent from the ratings
+   * file — a promoted side sits in the Championship slice of a snapshot taken
+   * before it came up, and that is precisely the club worth looking at. In
+   * that case `strength` is null and the names still come back unrated, so
+   * callers show the team sheet and simply omit the numbers.
+   */
   function xi(club, names) {
     if (!DATA || !names || !names.length) return null;
     const c = stripSuffix(club);
     const fb = DATA.clubMean[c];
     const rows = names.map(n => ({ name: n, ovr: rate(c, n) }));
     const vals = rows.map(r => (r.ovr == null ? fb : r.ovr)).filter(v => v != null);
-    if (vals.length < names.length * 0.6) return null;   // too thin to trust
     const rated = rows.filter(r => r.ovr != null).sort((a, b) => b.ovr - a.ovr);
+    const enough = vals.length >= names.length * 0.6;
     return {
-      strength: xiStrength(vals),
-      mean: vals.reduce((t, v) => t + v, 0) / vals.length,
+      strength: enough ? xiStrength(vals) : null,
+      mean: enough ? vals.reduce((t, v) => t + v, 0) / vals.length : null,
       rows,
       rated,
       unrated: rows.filter(r => r.ovr == null).length,
@@ -137,7 +146,7 @@
     const c = stripSuffix(club);
     const info = xi(c, names);
     const base = DATA && DATA.clubBaseline ? DATA.clubBaseline[c] : null;
-    if (!info || base == null) return null;
+    if (!info || info.strength == null || base == null) return null;
     return info.strength - base;
   }
 

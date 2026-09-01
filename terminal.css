@@ -1178,3 +1178,24 @@
 
   .center-body { padding: 14px 14px 24px; }
 }
+
+/* ── Form comparison inside the chart cell ──────────────────────────────
+   The chart views flex so the plot absorbs any slack, leaving the form
+   block to sit flush beneath it instead of a gap. */
+/* Inline display:none from the view toggle still wins over this, so the
+   hidden view stays hidden. */
+.chart-cell #view-elo,
+.chart-cell #view-wp { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+.chart-cell .metric-compare {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+/* Narrower than the full centre column, so let the pairs wrap on their own. */
+.chart-cell #metric-bars {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px 22px;
+}
+.chart-cell .metric-group { margin-bottom: 10px; }
+.ts-norate { color: var(--muted); font-style: italic; }

@@ -10,6 +10,10 @@
  *      state: 'pre' | 'in' | 'post'
  *      home/away are already normalised to the keys each tab's model uses.
  *
+ *   Live.lastLineup(league, club)  ->  { names, date, opponent, formation }
+ *      The last XI a club actually fielded — the stand-in for a fixture whose
+ *      real lineup ESPN has not published yet.
+ *
  *   Live.detail(league, eventId, rawHome)  ->  { goals, feed, lineups }
  *      One summary request yielding everything the match view needs: goal
  *      timings, the play-by-play feed (goals, cards, substitutions, injuries)
@@ -232,10 +236,96 @@
     return { goals, feed, lineups };
   }
 
+  /* ── Expected XI ───────────────────────────────────────────────────────
+   *
+   * ESPN only publishes a lineup near kickoff, so a fixture days out has no
+   * roster at all. Rather than showing nothing, fall back to the last XI each
+   * club actually fielded — labelled as expected, never as confirmed.
+   *
+   * The scan is one scoreboard sweep over the past few weeks, done once and
+   * reused, plus one summary request per club the page actually asks about.
+   */
+  const RECENT_DAYS = 35;
+  let recentIndex = null;          // club -> [{id, date, rawHome}] newest first
+  const lastXICache = new Map();
+
+  function ymd(d) {
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}` +
+           `${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  async function buildRecentIndex(league) {
+    if (recentIndex) return recentIndex;
+    const path = PATHS[league];
+    const idx = Object.create(null);
+    if (!path) return (recentIndex = idx);
+    const end = new Date();
+    const start = new Date(end.getTime() - RECENT_DAYS * 86400000);
+    try {
+      const r = await fetch(
+        `${ESPN}/${path}/scoreboard?dates=${ymd(start)}-${ymd(end)}&limit=400`,
+        { cache: 'no-store' });
+      if (r.ok) {
+        const d = await r.json();
+        for (const ev of (d.events || [])) {
+          const c = (ev.competitions || [])[0];
+          if (!c) continue;
+          const state = ((c.status || {}).type || {}).state;
+          if (state !== 'post') continue;            // only matches that were played
+          const comp = c.competitors || [];
+          const h = comp.find(t => t.homeAway === 'home');
+          const a = comp.find(t => t.homeAway === 'away');
+          if (!h || !a) continue;
+          const rawHome = (h.team && h.team.displayName) || '';
+          const date = (ev.date || '').slice(0, 10);
+          for (const t of [h, a]) {
+            const club = stripSuffix((t.team && t.team.displayName) || '');
+            if (!club) continue;
+            (idx[club] = idx[club] || []).push({ id: ev.id, date, rawHome });
+          }
+        }
+        for (const k of Object.keys(idx)) idx[k].sort((x, y) => (x.date < y.date ? 1 : -1));
+      }
+    } catch (e) { /* leave the index empty; callers degrade to no XI */ }
+    return (recentIndex = idx);
+  }
+
+  /**
+   * The most recent XI a club actually fielded.
+   * -> { names, date, opponent, formation } or null.
+   */
+  async function lastLineup(league, club) {
+    if (lastXICache.has(club)) return lastXICache.get(club);
+    const idx = await buildRecentIndex(league);
+    const events = idx[club] || [];
+    let out = null;
+    for (const ev of events.slice(0, 4)) {          // walk back if a summary is thin
+      const d = await summary(league, ev.id);
+      if (!d) continue;
+      for (const t of (d.rosters || [])) {
+        const name = stripSuffix((t.team && t.team.displayName) || '');
+        if (name !== club) continue;
+        const names = (t.roster || [])
+          .filter(p => p.starter)
+          .map(p => (p.athlete && p.athlete.displayName) || '')
+          .filter(Boolean);
+        if (names.length >= 10) {
+          const opp = (d.rosters || [])
+            .map(x => stripSuffix((x.team && x.team.displayName) || ''))
+            .find(n => n && n !== club) || '';
+          out = { names, date: ev.date, opponent: opp, formation: t.formation || '' };
+        }
+      }
+      if (out) break;
+    }
+    lastXICache.set(club, out);
+    return out;
+  }
+
   /** Back-compat: goal timings only. */
   async function timeline(league, eventId, rawHome) {
     return (await detail(league, eventId, rawHome)).goals;
   }
 
-  global.Live = { fetch: fetchLive, winProb, minsLeft, timeline, detail };
+  global.Live = { fetch: fetchLive, winProb, minsLeft, timeline, detail, lastLineup };
 })(window);
