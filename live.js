@@ -29,10 +29,12 @@
   'use strict';
 
   const ESPN = 'https://site.api.espn.com/apis/site/v2/sports';
-  const PATHS = { epl: 'soccer/eng.1', nfl: 'football/nfl' };
+  const PATHS = { epl: 'soccer/eng.1', nfl: 'football/nfl', nba: 'basketball/nba' };
 
   // ESPN's NFL abbreviations differ from nflverse's for exactly two clubs.
   const NFL_FIX = { LAR: 'LA', WSH: 'WAS' };
+  // NBA history is baked from this same ESPN feed, so the abbreviations already
+  // agree and need no remapping.
   // EPL: ESPN's displayName already matches our canonical names once the
   // trailing FC/AFC is stripped, so only the odd exception needs listing.
   const EPL_FIX = {};
@@ -58,12 +60,13 @@
         let home = null, away = null, hs = null, as = null;
         let abbrHome = null, abbrAway = null, rawHome = null, rawAway = null;
         for (const t of (c.competitors || [])) {
-          const raw = league === 'nfl'
+          const byAbbr = league === 'nfl' || league === 'nba';
+          const raw = byAbbr
             ? (t.team && t.team.abbreviation)
             : stripSuffix(t.team && t.team.displayName);
-          const name = league === 'nfl'
-            ? (NFL_FIX[raw] || raw)
-            : (EPL_FIX[raw] || raw);
+          const name = league === 'nfl' ? (NFL_FIX[raw] || raw)
+                     : league === 'nba' ? raw
+                     : (EPL_FIX[raw] || raw);
           const score = t.score == null || t.score === '' ? null : parseInt(t.score, 10);
           const abbr = (t.team && t.team.abbreviation) || '';
           const disp = (t.team && t.team.displayName) || '';

@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fulltime — NBA Game Predictor | Aaron Ho</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <!-- Vercel Web Analytics. Static site, so this is the script-tag form —
+       Vercel serves /_vercel/insights/script.js once Analytics is enabled
+       for the project. The @vercel/analytics npm package needs a bundler. -->
+  <script defer src="/_vercel/insights/script.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="theme.js"></script>
+  <link rel="stylesheet" href="terminal.css" />
+  <!-- not deferred: the inline page script constructs TrendChart directly -->
+  <script src="live.js"></script>
+  <script src="trend-chart.js"></script>
+  <script src="mobile-nav.js" defer></script>
+</head>
+<body>
+
+  <div class="shell">
+
+    <!-- NAV -->
+    <nav>
+      <div class="nav-left">
+        <a href="index.html" class="nav-logo">Fulltime</a>
+        <div class="league-tabs" role="group" aria-label="League">
+          <a href="epl.html" class="league-tab">EPL</a>
+          <a href="nfl.html" class="league-tab">NFL</a>
+          <a href="nba.html" class="league-tab is-on" aria-current="page">NBA</a>
+          <a href="logs.html" class="league-tab">LOGS</a>
+        </div>
+        <span class="nav-tagline">Game predictor · Elo ratings rebuilt from every game since 2020</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+        <span class="term-tag" id="season-tag">NBA</span>
+        <button type="button" class="theme-btn" id="theme-toggle"></button>
+      </div>
+    </nav>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <div id="loading-status">Loading NBA game history…</div>
+    </div>
+
+    <div id="app" class="terminal" style="display:none;">
+
+      <!-- WATCHLIST -->
+      <div class="term-col term-watchlist">
+        <div class="panel-head">
+          <div class="term-title">Elo Watchlist</div>
+          <div class="term-tag">Tap = away side</div>
+        </div>
+        <div id="watchlist" class="panel-body scroll-y"></div>
+      </div>
+
+      <!-- CENTER -->
+      <div class="term-col term-center">
+
+        <div class="center-head">
+          <div class="symbol-bar">
+            <div>
+              <div class="symbol-teams"><span id="sym-away">—</span><span class="sv">@</span><span id="sym-home">—</span></div>
+              <div class="symbol-sub" id="symbol-sub"></div>
+            </div>
+            <div class="symbol-price-wrap">
+              <div class="symbol-price" id="symbol-price">—</div>
+              <div class="symbol-price-label" id="symbol-price-label">Favored</div>
+            </div>
+          </div>
+
+          <div class="toolbar toolbar-nfl">
+            <div class="tb-btn" id="tb-swap">⇄ Swap sides</div>
+            <div class="tb-btn" id="tb-reset">↺ Reset</div>
+            <div class="tb-sep"></div>
+            <select id="away-select" class="tb-select" aria-label="Away team"></select>
+            <span class="vs">@</span>
+            <select id="home-select" class="tb-select" aria-label="Home team"></select>
+            <div class="tb-sep"></div>
+            <select id="fixture-select" class="tb-select tb-select-fixture" aria-label="Upcoming game"></select>
+            <div class="tb-sep"></div>
+            <div class="tb-btn qb-toggle" id="b2b-away" role="button" tabindex="0"
+                 title="Away team on the second night of a back-to-back">⚠ Away B2B</div>
+            <div class="tb-btn qb-toggle" id="b2b-home" role="button" tabindex="0"
+                 title="Home team on the second night of a back-to-back">⚠ Home B2B</div>
+          </div>
+        </div>
+
+        <div class="center-body scroll-y">
+
+          <div class="center-section duo chart-duo">
+            <div class="chart-cell">
+              <div class="chart-head">
+                <div class="card-title" style="margin-bottom:0;" id="trend-title">Elo Rating</div>
+                <div class="range-picker" id="trend-range" role="group" aria-label="Chart range">
+                  <button type="button" class="range-btn" data-n="10">10</button>
+                  <button type="button" class="range-btn is-on" data-n="20">20</button>
+                  <button type="button" class="range-btn" data-n="40">40</button>
+                  <button type="button" class="range-btn" data-n="0">All</button>
+                </div>
+              </div>
+              <div class="chart-legend" id="trend-legend"></div>
+              <div class="trend-svg-box" id="trend-chart"></div>
+              <div class="trend-foot" id="trend-foot"></div>
+
+              <div class="metric-compare">
+                <div class="card-title">Form Comparison — Last 8 Games</div>
+                <div class="chart-legend" id="metric-legend"></div>
+                <div id="metric-bars"></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="card-title">Win Probability</div>
+              <div class="prob-row">
+                <div class="prob-label" id="label-away">Away</div>
+                <div class="prob-track"><div class="prob-fill away" id="bar-away" style="width:0%"></div></div>
+                <div class="prob-pct" id="pct-away">—</div>
+              </div>
+              <div class="prob-row">
+                <div class="prob-label" id="label-home">Home</div>
+                <div class="prob-track"><div class="prob-fill home" id="bar-home" style="width:0%"></div></div>
+                <div class="prob-pct" id="pct-home">—</div>
+              </div>
+              <div class="verdict" id="verdict"></div>
+              <div class="projected" id="projected"></div>
+
+              <div class="stat-grid">
+                <div class="stat-col" id="stat-away"></div>
+                <div class="stat-col" id="stat-home"></div>
+              </div>
+              <div class="h2h-line" id="h2h"></div>
+            </div>
+          </div>
+
+          <div class="center-section">
+            <div class="card-title">How This Works</div>
+            <div class="methodology" id="methodology"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- QUOTE / SCHEDULE -->
+      <div class="term-col term-quotes">
+        <div class="panel-head">
+          <div class="term-title">Quote</div>
+        </div>
+        <div class="quote-panel">
+          <div class="quote-team" id="quote-team">—</div>
+          <div class="quote-price" id="quote-price">—</div>
+          <div class="quote-stats" id="quote-stats"></div>
+        </div>
+
+        <div class="panel-head">
+          <div class="term-title" id="week-title">Upcoming Games</div>
+          <div class="term-tag live">Live</div>
+        </div>
+        <div id="week-list" class="panel-body scroll-y"></div>
+      </div>
+
+    </div>
+
+    <div id="error" style="display:none;" class="error-box"></div>
+  </div>
+
+  <script>
+  (async function () {
+    'use strict';
+
+    // Calibrated by nba_model.py: grid-searched on seasons <= 2024, then scored
+    // on 2777 games from 2025-26 onward that the tuning never saw. Holdout
+    // 66.5% / 0.6099 log-loss against 55.0% for always picking the home side.
+    const DEFAULT_RATING = 1500;
+    const K = 16;
+    const HOME_ADV = 45;
+    const REGRESS = 0.50;        // carried across seasons; 50% pulled to the mean
+    // Back-to-back, fitted on <= 2024 and scored on the holdout by
+    // nba_features.py: 0.6099 -> 0.6078 log-loss, 66.5% -> 67.0%.
+    const B2B_BETA = 0.28;
+    // Measured on 8150 games, regressing margin on the rating gap. The NFL tab
+    // uses ~25; basketball's larger scores make each Elo point worth more.
+    const ELO_PER_POINT = 20.1;
+    const SRC = 'nba-games.json';
+    const UPCOMING_DAYS = 45;
+
+    const loadingEl = document.getElementById('loading');
+    const loadingStatus = document.getElementById('loading-status');
+    const appEl = document.getElementById('app');
+    const errorEl = document.getElementById('error');
+
+    const esc = s => String(s == null ? '' : s)
+      .replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                                   '"': '&quot;', "'": '&#39;' }[c]));
+
+    function showError(msg) {
+      loadingEl.style.display = 'none';
+      errorEl.style.display = 'block';
+      errorEl.textContent = msg;
+    }
+
+    let TEAM_NAMES = {};
+    const teamName = t => TEAM_NAMES[t] || t;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const dayNum = s => Math.floor(Date.parse(s + 'T00:00:00Z') / 86400000);
+
+    // ── Data ───────────────────────────────────────────────────────────────
+    async function loadHistory() {
+      const r = await fetch(SRC, { cache: 'force-cache' });
+      if (!r.ok) throw new Error('history file unavailable');
+      const d = await r.json();
+      TEAM_NAMES = d.teams || {};
+      return d.games || [];
+    }
+
+    /**
+     * Upcoming games straight from ESPN. The baked history stops at whatever
+     * had been played when it was built, so the schedule ahead has to come
+     * live — one range request rather than a file that would go stale daily.
+     */
+    async function loadUpcoming() {
+      const start = new Date();
+      const end = new Date(Date.now() + UPCOMING_DAYS * 86400000);
+      const fmt = d => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+      try {
+        const r = await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/nba/' +
+                              `scoreboard?dates=${fmt(start)}-${fmt(end)}&limit=1000`,
+                              { cache: 'no-store' });
+        if (!r.ok) return [];
+        const d = await r.json();
+        const out = [];
+        for (const ev of (d.events || [])) {
+          const c = (ev.competitions || [])[0];
+          if (!c) continue;
+          const st = ((c.status || {}).type || {}).state;
+          if (st === 'post') continue;
+          const comp = c.competitors || [];
+          const h = comp.find(t => t.homeAway === 'home');
+          const a = comp.find(t => t.homeAway === 'away');
+          if (!h || !a) continue;
+          out.push({
+            date: (ev.date || '').slice(0, 10),
+            home: h.team && h.team.abbreviation,
+            away: a.team && a.team.abbreviation,
+            neutral: !!c.neutralSite
+          });
+        }
+        out.sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+        return out;
+      } catch (e) {
+        return [];                      // schedule is optional; ratings still work
+      }
+    }
+
+    // ── Elo ────────────────────────────────────────────────────────────────
+    /**
+     * Margin-of-victory multiplier, FiveThirtyEight's NBA form.
+     *
+     * The `/(7.5 + 0.006 * winnerDiff)` term is the autocorrelation correction:
+     * without it a strong team keeps running up the score on weak ones and its
+     * rating inflates without bound.
+     */
+    function movMultiplier(margin, winnerDiff) {
+      return Math.pow(Math.abs(margin) + 3, 0.8) / (7.5 + 0.006 * winnerDiff);
+    }
+
+    function computeElo(games) {
+      const ratings = {}, history = {}, ratingTrail = {}, lastPlayed = {};
+      let prevSeason = null;
+      const get = t => (t in ratings ? ratings[t] : DEFAULT_RATING);
+
+      for (const g of games) {
+        if (prevSeason !== null && g.season !== prevSeason) {
+          for (const t in ratings) {
+            ratings[t] = DEFAULT_RATING + (ratings[t] - DEFAULT_RATING) * REGRESS;
+          }
+          for (const t in lastPlayed) delete lastPlayed[t];
+        }
+        prevSeason = g.season;
+
+        const h = g.home, a = g.away;
+        const Rh = get(h), Ra = get(a);
+        const dr = Rh - Ra + (g.neutral ? 0 : HOME_ADV);
+        const pHome = 1 / (1 + Math.pow(10, -dr / 400));
+        const margin = g.hs - g.as;
+        const won = margin > 0 ? 1 : 0;
+        const delta = K * movMultiplier(margin, won ? dr : -dr) * (won - pHome);
+
+        ratings[h] = Rh + delta;
+        ratings[a] = Ra - delta;
+        (ratingTrail[h] = ratingTrail[h] || []).push({
+          date: g.date, rating: ratings[h], delta, opp: a, venue: 'home',
+          gf: g.hs, ga: g.as, result: won ? 'W' : 'L'
+        });
+        (ratingTrail[a] = ratingTrail[a] || []).push({
+          date: g.date, rating: ratings[a], delta: -delta, opp: h, venue: 'away',
+          gf: g.as, ga: g.hs, result: won ? 'L' : 'W'
+        });
+        [[h, a, g.hs, g.as, 'home'], [a, h, g.as, g.hs, 'away']].forEach(([team, opp, pf, pa, venue]) => {
+          (history[team] = history[team] || []).push({
+            date: g.date, opponent: opp, venue, gf: pf, ga: pa, season: g.season,
+            result: pf > pa ? 'W' : 'L'
+          });
+        });
+        const d = dayNum(g.date);
+        lastPlayed[h] = d; lastPlayed[a] = d;
+      }
+      return { ratings, history, ratingTrail, lastPlayed };
+    }
+
+    function recentStats(history, team, n) {
+      const h = (history[team] || []).slice(-n);
+      if (!h.length) return null;
+      return {
+        pf: h.reduce((s, m) => s + m.gf, 0) / h.length,
+        pa: h.reduce((s, m) => s + m.ga, 0) / h.length,
+        margin: h.reduce((s, m) => s + (m.gf - m.ga), 0) / h.length,
+        wins: h.filter(m => m.result === 'W').length,
+        n: h.length
+      };
+    }
+
+    function predict(elo, home, away, b2b, game) {
+      const Rh = elo.ratings[home] ?? DEFAULT_RATING;
+      const Ra = elo.ratings[away] ?? DEFAULT_RATING;
+      const dr = Rh - Ra + (game && game.neutral ? 0 : HOME_ADV);
+      let z = Math.log(10) * dr / 400;         // Elo gap as log-odds
+
+      // A tired away side helps the home team and vice versa.
+      const net = ((b2b && b2b.away) ? 1 : 0) - ((b2b && b2b.home) ? 1 : 0);
+      if (net !== 0) z += B2B_BETA * net;
+
+      const homeWin = 1 / (1 + Math.exp(-z));
+      const spread = (z * 400 / Math.LN10) / ELO_PER_POINT;
+      return {
+        homeWin, awayWin: 1 - homeWin, Rh, Ra, spread, b2bNet: net,
+        sHome: recentStats(elo.history, home, 8),
+        sAway: recentStats(elo.history, away, 8)
+      };
+    }
+
+    /** Was this team playing yesterday? Only knowable for a dated fixture. */
+    function isB2B(elo, team, dateStr) {
+      const last = elo.lastPlayed[team];
+      if (last == null || !dateStr) return false;
+      return dayNum(dateStr) - last === 1;
+    }
+
+    function projectScore(elo, home, away) {
+      const sh = recentStats(elo.history, home, 12), sa = recentStats(elo.history, away, 12);
+      if (!sh || !sa) return null;
+      // League scoring level, split by the model's expected margin.
+      const base = (sh.pf + sh.pa + sa.pf + sa.pa) / 4;
+      const p = predict(elo, home, away, null, null);
+      const h = base + p.spread / 2, a = base - p.spread / 2;
+      return { home: h, away: a, total: h + a };
+    }
+
+    function formPills(history, team, n, size) {
+      const h = (history[team] || []).slice(-n);
+      const cls = size ? `pill ${size}` : 'pill';
+      return h.map(m => {
+        const venue = m.venue === 'home' ? 'vs' : '@';
+        const title = `${m.date} · ${venue} ${teamName(m.opponent)} · ${m.gf}-${m.ga}`;
+        return `<div class="${cls} ${m.result}" title="${esc(title)}">${m.result}</div>`;
+      }).join('');
+    }
+
+    let trendChart = null;
+    function renderTrendChart(elo, home, away) {
+      if (!trendChart) {
+        trendChart = new TrendChart({
+          box: document.getElementById('trend-chart'),
+          legend: document.getElementById('trend-legend'),
+          foot: document.getElementById('trend-foot'),
+          title: document.getElementById('trend-title'),
+          rangeWrap: document.getElementById('trend-range'),
+          label: teamName,
+          unit: 'Games',
+          baseline: DEFAULT_RATING
+        });
+      }
+      trendChart.render(elo.ratingTrail, home, away);
+    }
+
+    function metricRow(label, a, h, dp) {
+      const max = Math.max(a || 0, h || 0, 0.01) * 1.15;
+      const fmt = v => (v == null ? '—' : v.toFixed(dp));
+      return `
+        <div class="metric-group">
+          <div class="metric-label">${label}</div>
+          <div class="metric-bar-row">
+            <div class="metric-bar-track"><div class="metric-bar-fill away" style="width:${clamp(((a || 0) / max) * 100, 0, 100)}%"></div></div>
+            <div class="metric-bar-val">${fmt(a)}</div>
+          </div>
+          <div class="metric-bar-row">
+            <div class="metric-bar-track"><div class="metric-bar-fill home" style="width:${clamp(((h || 0) / max) * 100, 0, 100)}%"></div></div>
+            <div class="metric-bar-val">${fmt(h)}</div>
+          </div>
+        </div>`;
+    }
+
+    function h2hSummary(history, home, away) {
+      const h = (history[home] || []).filter(m => m.opponent === away).slice(-6);
+      if (!h.length) return 'No recent meetings in the loaded history.';
+      const hw = h.filter(m => m.result === 'W').length;
+      return `Last ${h.length} meetings: ${teamName(home)} ${hw}–${h.length - hw} ${teamName(away)}.`;
+    }
+
+    // ── Main ───────────────────────────────────────────────────────────────
+    let games, elo, teams, upcoming, ranked;
+    const b2bState = { home: false, away: false };
+
+    try {
+      loadingStatus.textContent = 'Loading NBA game history…';
+      games = await loadHistory();
+      if (!games.length) throw new Error('no games in history file');
+      loadingStatus.textContent = 'Fitting Elo ratings…';
+      elo = computeElo(games);
+      loadingStatus.textContent = 'Loading schedule…';
+      upcoming = await loadUpcoming();
+    } catch (e) {
+      showError('Could not load NBA data: ' + e.message);
+      return;
+    }
+
+    teams = Object.keys(elo.ratings).sort((a, b) => teamName(a).localeCompare(teamName(b)));
+    ranked = teams.map(t => ({ team: t, rating: elo.ratings[t] }))
+                  .sort((a, b) => b.rating - a.rating);
+
+    const homeSelect = document.getElementById('home-select');
+    const awaySelect = document.getElementById('away-select');
+    const fixtureSelect = document.getElementById('fixture-select');
+    teams.forEach(t => {
+      homeSelect.appendChild(new Option(teamName(t), t));
+      awaySelect.appendChild(new Option(teamName(t), t));
+    });
+    fixtureSelect.appendChild(new Option('— manual selection —', ''));
+    upcoming.slice(0, 60).forEach((g, i) => {
+      fixtureSelect.appendChild(new Option(`${g.date} — ${g.away} @ ${g.home}`, i));
+    });
+
+    function selectDefault() {
+      if (upcoming.length) {
+        const g = upcoming[0];
+        homeSelect.value = g.home; awaySelect.value = g.away;
+        fixtureSelect.value = '0';
+        b2bState.home = isB2B(elo, g.home, g.date);
+        b2bState.away = isB2B(elo, g.away, g.date);
+      } else {
+        homeSelect.value = ranked[0].team;
+        awaySelect.value = ranked[1].team;
+        fixtureSelect.value = '';
+      }
+      syncB2BButtons();
+    }
+
+    function syncB2BButtons() {
+      document.getElementById('b2b-home').classList.toggle('is-on', !!b2bState.home);
+      document.getElementById('b2b-away').classList.toggle('is-on', !!b2bState.away);
+    }
+
+    ['home', 'away'].forEach(side => {
+      const el = document.getElementById('b2b-' + side);
+      const go = () => { b2bState[side] = !b2bState[side]; syncB2BButtons(); render(); };
+      el.addEventListener('click', go);
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+      });
+    });
+
+    document.getElementById('tb-swap').addEventListener('click', () => {
+      const h = homeSelect.value;
+      homeSelect.value = awaySelect.value; awaySelect.value = h;
+      const b = b2bState.home; b2bState.home = b2bState.away; b2bState.away = b;
+      fixtureSelect.value = ''; syncB2BButtons(); render();
+    });
+    document.getElementById('tb-reset').addEventListener('click', () => { selectDefault(); render(); });
+
+    fixtureSelect.addEventListener('change', () => {
+      if (fixtureSelect.value === '') return;
+      const g = upcoming[Number(fixtureSelect.value)];
+      homeSelect.value = g.home; awaySelect.value = g.away;
+      b2bState.home = isB2B(elo, g.home, g.date);
+      b2bState.away = isB2B(elo, g.away, g.date);
+      syncB2BButtons(); render();
+    });
+    homeSelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
+    awaySelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
+
+    selectDefault();
+
+    (function watchChartSize() {
+      const box = document.getElementById('trend-chart');
+      if (!box || typeof ResizeObserver === 'undefined') return;
+      let lastW = 0, lastH = 0, pending = null;
+      new ResizeObserver(entries => {
+        const r = entries[0].contentRect;
+        const w = Math.round(r.width), h = Math.round(r.height);
+        if (Math.abs(w - lastW) < 2 && Math.abs(h - lastH) < 2) return;
+        lastW = w; lastH = h;
+        clearTimeout(pending);
+        pending = setTimeout(() => renderTrendChart(elo, homeSelect.value, awaySelect.value), 60);
+      }).observe(box);
+    })();
+
+    function renderWatchlist() {
+      const home = homeSelect.value, away = awaySelect.value;
+      const el = document.getElementById('watchlist');
+      el.innerHTML = ranked.map((r, i) => {
+        const trail = elo.ratingTrail[r.team] || [];
+        const d = trail.length > 1 ? trail[trail.length - 1].rating - trail[trail.length - 2].rating : null;
+        const cls = d == null ? 'flat' : d > 0.5 ? 'up' : d < -0.5 ? 'down' : 'flat';
+        const txt = d == null ? '—' : (d > 0 ? '+' : '') + Math.round(d);
+        const rowCls = r.team === home ? 'is-home' : (r.team === away ? 'is-away' : '');
+        const tag = r.team === home ? ' · HOME' : (r.team === away ? ' · AWAY' : '');
+        return `
+          <div class="wl-row ${rowCls}" data-team="${esc(r.team)}" tabindex="0" role="button">
+            <div class="wl-name">
+              <span class="n">${esc(teamName(r.team))}</span>
+              <span class="wl-meta">
+                <span class="rank">#${i + 1}${tag}</span>
+                <span class="wl-form">${formPills(elo.history, r.team, 5, 'tiny')}</span>
+              </span>
+            </div>
+            <div class="wl-right">
+              <div class="wl-rating">${Math.round(r.rating)}</div>
+              <div class="wl-delta ${cls}">${txt}</div>
+            </div>
+          </div>`;
+      }).join('');
+      el.querySelectorAll('.wl-row').forEach(row => {
+        const go = () => { awaySelect.value = row.getAttribute('data-team'); fixtureSelect.value = ''; render(); };
+        row.addEventListener('click', go);
+        row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      });
+    }
+
+    function render() {
+      const home = homeSelect.value, away = awaySelect.value;
+      const ctx = upcoming.find(g => g.home === home && g.away === away) || null;
+      const p = predict(elo, home, away, b2bState, ctx);
+      const hPct = Math.round(p.homeWin * 100), aPct = 100 - hPct;
+
+      document.getElementById('label-home').textContent = teamName(home);
+      document.getElementById('label-away').textContent = teamName(away);
+      document.getElementById('bar-home').style.width = (p.homeWin * 100).toFixed(1) + '%';
+      document.getElementById('bar-away').style.width = (p.awayWin * 100).toFixed(1) + '%';
+      document.getElementById('pct-home').textContent = hPct + '%';
+      document.getElementById('pct-away').textContent = aPct + '%';
+
+      const favHome = p.homeWin >= 0.5;
+      const fav = favHome ? home : away;
+      const favPct = Math.max(hPct, aPct);
+      const spread = Math.abs(p.spread);
+
+      document.getElementById('sym-home').textContent = teamName(home);
+      document.getElementById('sym-away').textContent = teamName(away);
+      document.getElementById('symbol-sub').innerHTML =
+        `ELO <b>${Math.round(p.Ra)}</b> · <b>${Math.round(p.Rh)}</b>` +
+        `&nbsp;&nbsp;HOME ADV <b>+${HOME_ADV}</b>` +
+        `&nbsp;&nbsp;PROJ SPREAD <b>${esc(fav)} −${spread.toFixed(1)}</b>` +
+        (p.b2bNet ? `&nbsp;&nbsp;<b style="color:var(--live)">B2B ADJ</b>` : '');
+      document.getElementById('symbol-price').textContent = favPct + '%';
+      document.getElementById('symbol-price-label').textContent = `${teamName(fav)} favored`;
+
+      document.getElementById('verdict').innerHTML = `
+        <div class="verdict-main">
+          <span class="verdict-team">${esc(teamName(fav))}</span>
+          <span class="pill-stat">FAVORED · ${favPct}%</span>
+        </div>
+        <div class="verdict-sub">Projected spread ${esc(fav)} −${spread.toFixed(1)} · Elo ${Math.round(p.Rh)} vs ${Math.round(p.Ra)}</div>`;
+
+      const proj = projectScore(elo, home, away);
+      const projEl = document.getElementById('projected');
+      projEl.innerHTML = proj ? `
+        <div class="proj-head">Projected score</div>
+        <div class="proj-row">
+          <span class="proj-team away">${esc(away)}</span>
+          <span class="proj-pts">${proj.away.toFixed(0)}</span>
+          <span class="proj-sep">–</span>
+          <span class="proj-pts">${proj.home.toFixed(0)}</span>
+          <span class="proj-team home">${esc(home)}</span>
+          <span class="proj-total">total ${proj.total.toFixed(0)}</span>
+        </div>` : '';
+
+      document.getElementById('quote-team').textContent = teamName(fav);
+      document.getElementById('quote-price').textContent = favPct + '%';
+      document.getElementById('quote-stats').innerHTML = `
+        <div class="quote-stat-row"><span class="k">${esc(teamName(home))} Elo</span><span class="v">${Math.round(p.Rh)}</span></div>
+        <div class="quote-stat-row"><span class="k">${esc(teamName(away))} Elo</span><span class="v">${Math.round(p.Ra)}</span></div>
+        <div class="quote-stat-row"><span class="k">Rating gap</span><span class="v">${Math.round(p.Rh - p.Ra)}</span></div>
+        <div class="quote-stat-row"><span class="k">Projected spread</span><span class="v">${esc(fav)} −${spread.toFixed(1)}</span></div>`;
+
+      document.getElementById('metric-legend').innerHTML = `
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-away)"></span>${esc(teamName(away))}</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:var(--series-home)"></span>${esc(teamName(home))}</div>`;
+      const sh = p.sHome, sa = p.sAway;
+      document.getElementById('metric-bars').innerHTML =
+        metricRow('Points scored / game (last 8)', sa && sa.pf, sh && sh.pf, 1) +
+        metricRow('Points allowed / game', sa && sa.pa, sh && sh.pa, 1) +
+        metricRow('Wins in last 8', sa && sa.wins, sh && sh.wins, 0) +
+        metricRow('Average margin', sa && sa.margin, sh && sh.margin, 1);
+
+      const block = t => `
+        <div class="stat-team">${esc(teamName(t))}</div>
+        <div style="font-size:11px;color:var(--muted);">Recent form</div>
+        <div class="form-pills">${formPills(elo.history, t, 5)}</div>`;
+      document.getElementById('stat-home').innerHTML = block(home);
+      document.getElementById('stat-away').innerHTML = block(away);
+      document.getElementById('h2h').textContent = h2hSummary(elo.history, home, away);
+
+      renderWatchlist();
+      renderTrendChart(elo, home, away);
+    }
+
+    // Live scores (ESPN). Additive only — silent no-op if the feed is down.
+    let liveByKey = Object.create(null);
+    const liveKey = (h, a) => `${h}|${a}`;
+    const liveFor = (h, a) => liveByKey[liveKey(h, a)] || null;
+
+    async function refreshLive() {
+      const evs = await Live.fetch('nba');
+      const next = Object.create(null);
+      evs.forEach(e => { next[liveKey(e.home, e.away)] = e; });
+      liveByKey = next;
+      const badge = document.querySelector('.term-tag.live');
+      if (badge) badge.textContent = evs.some(e => e.state === 'in') ? 'LIVE NOW' : 'Live';
+      renderWeekList();
+    }
+
+    function renderWeekList() {
+      const listEl = document.getElementById('week-list');
+      const list = upcoming.filter(g => {
+        const lv = liveFor(g.home, g.away);
+        return !(lv && lv.state === 'post');
+      }).slice(0, 24);
+      if (!list.length) {
+        listEl.innerHTML = '<div class="week-empty">No games scheduled in the next ' +
+                           UPCOMING_DAYS + ' days — the NBA season runs October to June.</div>';
+        return;
+      }
+      const todayStr = new Date().toISOString().slice(0, 10);
+      listEl.innerHTML = list.map((g, i) => {
+        const b2b = { home: isB2B(elo, g.home, g.date), away: isB2B(elo, g.away, g.date) };
+        const p = predict(elo, g.home, g.away, b2b, g);
+        const hPct = Math.round(p.homeWin * 100), aPct = 100 - hPct;
+        const lv = liveFor(g.home, g.away);
+        const isLive = lv && lv.state === 'in';
+        return `
+          <button type="button" class="ticker-row${isLive ? ' is-live' : ''}" data-idx="${i}">
+            <div class="ticker-top">
+              ${isLive
+                ? `<span class="live-pill"><span class="blip"></span>LIVE Q${lv.period} ${esc(lv.clock || '')}</span>`
+                : `<span class="ticker-date">${g.date === todayStr ? 'TODAY' : g.date}</span>`}
+              ${isLive
+                ? `<span class="live-score">${lv.as}–${lv.hs}</span>`
+                : `<span class="ticker-fav">${esc(p.homeWin >= 0.5 ? g.home : g.away)} ${Math.max(hPct, aPct)}%</span>`}
+            </div>
+            <div class="ticker-matchup">${esc(g.away)}<span style="color:var(--muted);font-weight:400;"> @ </span>${esc(g.home)}</div>
+            <div class="week-stack" style="margin-top:6px;">
+              <div class="week-seg away" style="width:${aPct}%"></div>
+              <div class="week-seg home" style="width:${hPct}%"></div>
+            </div>
+          </button>`;
+      }).join('');
+      listEl.querySelectorAll('.ticker-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const g = list[Number(row.getAttribute('data-idx'))];
+          homeSelect.value = g.home; awaySelect.value = g.away;
+          fixtureSelect.value = String(upcoming.indexOf(g));
+          b2bState.home = isB2B(elo, g.home, g.date);
+          b2bState.away = isB2B(elo, g.away, g.date);
+          syncB2BButtons();
+          render();
+          const body = document.querySelector('.center-body');
+          if (body) body.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+      });
+    }
+
+    const lastDate = games[games.length - 1].date;
+    document.getElementById('methodology').innerHTML = `
+      Every team starts at 1500 and their rating updates after each game with the standard Elo
+      formula, scaled by margin of victory — a 20-point win moves the rating more than a buzzer
+      beater. The multiplier carries the usual autocorrelation correction, which stops strong
+      teams inflating their rating simply by beating weak ones badly. Ratings carry between
+      seasons but regress ${Math.round((1 - REGRESS) * 100)}% toward the mean each offseason.
+      <br><br>
+      Win probability comes from the rating gap plus a +${HOME_ADV}-point home-court advantage.
+      The projected spread converts that gap at <b>${ELO_PER_POINT} Elo points per point</b>, which
+      is measured on all ${games.length.toLocaleString()} games here rather than borrowed — the NFL
+      tab's ~25 doesn't transfer to a sport scoring 110 a night. Bear in mind the spread is a
+      central estimate around a lot of noise: game margins scatter about 14 points either side of it.
+      <br><br>
+      <b>Back-to-backs.</b> The one adjustment on top of the rating, applied in log-odds and worth
+      β=${B2B_BETA} when one side played the previous night. Fitted on seasons through 2024 and
+      scored on the 2025+ holdout by <code>nba_features.py</code>: 0.6099 → 0.6078 log-loss and
+      66.5% → 67.0%. General rest-day difference was tested at the same time and
+      <i>rejected</i> — it scored 0.6101, slightly worse than Elo alone, so only the
+      back-to-back flag survives. The toolbar toggles let you override it.
+      <br><br>
+      <b>How accurate is it?</b> K=${K}, home advantage and offseason regression were grid-searched
+      on seasons through 2024, then scored on <b>2,777 games</b> from 2025 onward that the tuning
+      never saw: <b>66.5%</b> correct at 0.6099 log-loss, rising to <b>67.0%</b> with the
+      back-to-back term. Always picking the home team gets 55.0%. Dropping the margin-of-victory
+      multiplier costs about half a point of accuracy (66.1%). The probabilities are also
+      well calibrated — games it calls at 65% are won 65.5% of the time, and at 75%, 77.0%.
+      <br><br>
+      <b>Why Elo rather than the EPL tab's Dixon-Coles?</b> That model treats goals as Poisson,
+      which works when scores are small integers arriving one at a time. Basketball scores are
+      large and there are no draws, so a three-outcome goals model has nothing to model.
+      <br><br>
+      History is baked into <code>nba-games.json</code> by <code>build_nba.py</code>
+      (${games.length.toLocaleString()} games, ${games[0].date} to ${lastDate}) because ESPN only
+      answers one date range per request and five seasons is ~90 of them. That feed also carries
+      preseason exhibitions against European and Australian clubs plus All-Star squads; the build
+      script drops anything not between two of the 30 franchises, since beating Real Madrid in
+      October should not move a team's rating. The upcoming schedule and
+      live scores come from that same feed at page load. Run <code>nba_model.py</code> to reproduce
+      the calibration.`;
+
+    if (window.FulltimeTheme) {
+      window.FulltimeTheme.mount(document.getElementById('theme-toggle'));
+      window.onFulltimeThemeChange = () => { if (elo) renderTrendChart(elo, homeSelect.value, awaySelect.value); };
+    }
+    window.onFulltimePanelShown = () => {
+      if (elo) renderTrendChart(elo, homeSelect.value, awaySelect.value);
+    };
+
+    render();
+    renderWeekList();
+    refreshLive();
+    setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive(); });
+    loadingEl.style.display = 'none';
+    appEl.style.display = 'grid';
+  })();
+  </script>
+</body>
+</html>

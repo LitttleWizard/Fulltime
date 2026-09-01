@@ -1,7 +1,8 @@
 # Fulltime
 
-Sports match predictor with two tabs, both computed client-side with no backend and
-no API keys. Static pages, no build step.
+Sports match predictor with three league tabs, all computed client-side with no
+backend and no API keys. Static pages; the only build steps are the offline
+scripts that bake data files.
 
 - **EPL** (`epl.html`; `index.html` is the landing page) — Dixon-Coles model (attack/defence strengths, Poisson goals
   with the low-score correction) fitted in-browser; produces win/draw/loss plus a
@@ -9,6 +10,9 @@ no API keys. Static pages, no build step.
   trend chart. Data: `openfootball/football.json`, fetched live.
 - **NFL** (`nfl.html`) — Elo with a margin-of-victory multiplier. Data: nflverse
   `games.csv` (1999–present), fetched live. Constants calibrated by `nfl_model.py`.
+- **NBA** (`nba.html`) — Elo with 538's NBA margin multiplier, plus a
+  back-to-back adjustment. Data baked into `nba-games.json` by `build_nba.py`;
+  schedule and live scores from ESPN at runtime. Calibrated by `nba_model.py`.
 
 `terminal.css` holds the shared terminal-style layout used by both pages; keep page
 files free of layout CSS so the two tabs can't drift apart.
@@ -31,6 +35,14 @@ override the tab label with `data-mtab` / `data-mtab-icon` (the log tab does).
 - **football-data.co.uk has no CORS**, so it can't be fetched at runtime. Its shots
   data is baked into `epl-shots.json` via `python3 build_shots.py`; its odds are used
   only for offline benchmarking in `evaluate.py`.
+- **ESPN's NBA scoreboard is not only NBA.** It carries preseason exhibitions
+  against European and Australian clubs (Real Madrid, Flamengo, Hapoel, the NBL
+  sides) and All-Star squads (EAST/WEST/STARS/STRIPES), plus the odd `null`
+  abbreviation. `build_nba.py` keeps only games between two of the 30 franchises
+  it resolves from `/teams` — without that filter, beating Real Madrid in
+  October moves a team's Elo, and the team picker shows 52 teams.
+- **hoopR-data stops at 2023 and FiveThirtyEight's `nba_elo` files are gone**, so
+  ESPN is currently the only NBA source that is both current and CORS-open.
 - **`nflreadpy` needs Python ≥3.10** and isn't used here — it's a wrapper over the same
   nflverse file the page reads directly. If you ever want its richer play-by-play data,
   write a build script that emits JSON (the `build_shots.py` pattern).
@@ -68,11 +80,15 @@ but negligible in size. Don't talk it up; the page states the number.
 ## Measuring accuracy
 
 Report **held-out** numbers, never the tuning-era ones — they differ materially. Current
-honest figures: EPL 50.4% (market 51.9%), NFL 64.3% (market 67.9%).
+honest figures: EPL 50.4% (market 51.9%), NFL 64.3% (market 67.9%), NBA 67.0%
+(vs 55.0% for always picking the home side).
 
 - `evaluate.py` — EPL honest evaluation vs baselines and the betting market
 - `dixon_coles.py` — EPL Dixon-Coles backtest
 - `nfl_model.py` — NFL calibration + evaluation
+- `nba_model.py` — NBA Elo grid search + honest holdout evaluation
+- `nba_features.py` — tests NBA rest signals; back-to-back kept, rest-days rejected
+- `epl_players.py` / `epl_squad.py` — tested EA FC ratings against Dixon-Coles
 - `diagnose.py` — tests candidate signals before building them
 
 Deployed to Vercel via `./deploy.sh` (wraps `vercel --prod`).
