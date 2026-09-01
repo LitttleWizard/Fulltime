@@ -1169,6 +1169,23 @@
     padding: 9px 10px; font-size: 16px;    /* 16px still avoids iOS zoom */
   }
 
+  /* NFL carries two extra QB toggles and reads away @ home, so it needs its
+     own placement — the generic rules above assume home first and no toggles,
+     which left the toggles to auto-flow off the side of the screen. */
+  .toolbar-nfl #away-select { grid-column: 1; grid-row: 1; }
+  .toolbar-nfl #home-select { grid-column: 2; grid-row: 1; }
+  .toolbar-nfl #tb-swap     { grid-column: 3; grid-row: 1; }
+  .toolbar-nfl .tb-select-fixture { grid-column: 1 / -1; grid-row: 2; }
+  .toolbar-nfl .qb-toggle {
+    grid-row: 3;
+    justify-content: center;
+    padding: 9px 6px;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  .toolbar-nfl #qb-away { grid-column: 1 / 2; }
+  .toolbar-nfl #qb-home { grid-column: 2 / -1; }
+
   /* icon-only swap: the label is redundant next to two team pickers */
   .toolbar #tb-swap {
     padding: 9px 10px; gap: 0;

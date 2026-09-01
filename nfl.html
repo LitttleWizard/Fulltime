@@ -81,19 +81,19 @@
             </div>
           </div>
 
-          <div class="toolbar">
+          <div class="toolbar toolbar-nfl">
             <div class="tb-btn" id="tb-swap">⇄ Swap sides</div>
             <div class="tb-btn" id="tb-reset">↺ Reset</div>
             <div class="tb-sep"></div>
-            <select id="away-select" style="flex:1 1 130px; width:auto; max-width:220px;" aria-label="Away team"></select>
-            <span class="vs" style="padding-top:0;">@</span>
-            <select id="home-select" style="flex:1 1 130px; width:auto; max-width:220px;" aria-label="Home team"></select>
+            <select id="away-select" class="tb-select" aria-label="Away team"></select>
+            <span class="vs">@</span>
+            <select id="home-select" class="tb-select" aria-label="Home team"></select>
             <div class="tb-sep"></div>
-            <select id="fixture-select" style="flex:1 1 200px; width:auto; max-width:280px;" aria-label="Upcoming game"></select>
+            <select id="fixture-select" class="tb-select tb-select-fixture" aria-label="Upcoming game"></select>
             <div class="tb-sep"></div>
-            <div class="tb-btn" id="qb-away" role="button" tabindex="0"
+            <div class="tb-btn qb-toggle" id="qb-away" role="button" tabindex="0"
                  title="Away team starting a backup/new QB">⚠ Away QB out</div>
-            <div class="tb-btn" id="qb-home" role="button" tabindex="0"
+            <div class="tb-btn qb-toggle" id="qb-home" role="button" tabindex="0"
                  title="Home team starting a backup/new QB">⚠ Home QB out</div>
           </div>
         </div>
