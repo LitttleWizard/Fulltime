@@ -344,26 +344,19 @@
       const adv = game && game.neutral ? 0 : HOME_ADV;
       const dr = Rh - Ra + adv;
 
-      /* Base win probability.
+      /* Base win probability: the logistic on the rating gap.
        *
-       * Two estimators exist from the same ratings: the logistic on the rating
-       * gap, and the share of historical margin errors that would still leave
-       * this side ahead. They disagree by about a point. Rather than assume the
-       * logistic was right — which is what this page did until the simulation
-       * made the disagreement visible — scripts/margin_vs_logistic.py measured
-       * both on held-out games. The margin view wins: 0.6083 -> 0.6075 log-loss
-       * and 66.7% -> 67.1% with the back-to-back term still on top, bootstrap
-       * CI [+0.00008, +0.00152], so the difference is not noise.
-       *
-       * Falls back to the logistic until the distribution has loaded, and on
-       * the NFL tab, where the same test found no distinguishable difference.
+       * A margin-based alternative was tried — the share of historical margin
+       * errors that would still leave this side ahead — and briefly shipped,
+       * on a single holdout that showed it significantly better. A fuller
+       * evaluation withdrew that: pooled across every season it is
+       * indistinguishable (−0.00042, CI spanning zero), and the earlier win
+       * came from the holdout happening to be the two seasons where it led.
+       * Excluding the empty-arena season, and restricting to recent seasons,
+       * both also come back indistinguishable. See margin_vs_logistic.py,
+       * --rolling. The simpler estimator stands.
        */
-      const pBase = (typeof MatchSim !== 'undefined')
-        ? MatchSim.winProbFromMargin('nba', dr / ELO_PER_POINT)
-        : null;
-      let z = pBase != null
-        ? Math.log(pBase / (1 - pBase))
-        : Elo.logOdds(Rh, Ra, adv);
+      let z = Elo.logOdds(Rh, Ra, adv);
 
       // A tired away side helps the home team and vice versa.
       const net = ((b2b && b2b.away) ? 1 : 0) - ((b2b && b2b.home) ? 1 : 0);
@@ -810,8 +803,8 @@
         league: 'nba',
         spread: p.spread,                 // positive favours home
         total: sh.pf + sa.pf,
-        // No shift needed: the headline now uses the same margin distribution,
-        // so the two agree by construction rather than by correction.
+        // Keep the simulated margin distribution consistent with the headline
+        // probability, which is the validated quantity.
         targetWinProb: p.homeWin,
         runs: SIM_RUNS
       });
@@ -834,8 +827,12 @@
         const cls = b.lo >= 0 ? 'home' : 'away';
         const title = `${b.lo >= 0 ? esc(home) : esc(away)} by ${Math.abs(b.lo + (b.lo >= 0 ? 0 : W))}` +
                       `–${Math.abs(b.lo + (b.lo >= 0 ? W : 0))} · ${(b.p * 100).toFixed(1)}%`;
-        return `<span class="sim-bar ${cls}" style="height:${(b.p / peak * 100).toFixed(1)}%" title="${title}"></span>`;
+        return `<span class="sim-bar ${cls}" style="height:${(b.p / peak * 100).toFixed(1)}%" ` +
+               `data-tip="${title}" tabindex="0"></span>`;
       }).join('');
+      // A native title tooltip is slow, unstyled and inconsistent with the
+      // trend chart, which has a real one. Bars carry data-tip and the handler
+      // below positions a styled bubble.
       document.getElementById('sim-axis').innerHTML =
         `<span>${esc(away)} +35</span><span>even</span><span>${esc(home)} +35</span>`;
 
@@ -848,7 +845,7 @@
 
       document.getElementById('sim-stats').innerHTML =
         row('Simulated win — ' + esc(home), pc(r.homeWin), true) +
-        row('Headline probability', pc(p.homeWin)) +
+        row('Model win (closed form)', pc(p.homeWin)) +
         row('Median margin', `${esc(favName)} by ${Math.abs(r.marginMedian)}`) +
         row('Middle 80% of margins',
             `${esc(away)} +${Math.abs(Math.min(r.margin10, 0))} … ${esc(home)} +${Math.max(r.margin90, 0)}`) +
@@ -866,6 +863,40 @@
         'agreeing is the point. Everything else here is information the win probability alone ' +
         'cannot express.';
     }
+
+    /* Hover/focus tooltip for the margin histogram. Delegated once rather than
+     * per-bar, since the bars are re-rendered on every prediction change. */
+    (function simTooltip() {
+      const host = document.getElementById('sim-hist');
+      if (!host) return;
+      const tip = document.createElement('div');
+      tip.className = 'sim-tip';
+      tip.hidden = true;
+      host.parentNode.appendChild(tip);
+
+      const show = el => {
+        const t = el.getAttribute('data-tip');
+        if (!t) return;
+        tip.textContent = t;
+        tip.hidden = false;
+        const hb = host.getBoundingClientRect(), b = el.getBoundingClientRect();
+        const left = b.left - hb.left + b.width / 2;
+        tip.style.left = Math.max(0, Math.min(hb.width - tip.offsetWidth, left - tip.offsetWidth / 2)) + 'px';
+        tip.style.bottom = (hb.bottom - b.top + 6) + 'px';
+      };
+      const hide = () => { tip.hidden = true; };
+
+      host.addEventListener('mouseover', e => {
+        const b = e.target.closest('.sim-bar');
+        if (b) show(b);
+      });
+      host.addEventListener('mouseleave', hide);
+      host.addEventListener('focusin', e => {
+        const b = e.target.closest('.sim-bar');
+        if (b) show(b);
+      });
+      host.addEventListener('focusout', hide);
+    })();
 
     // Live scores (ESPN). Additive only — silent no-op if the feed is down.
     let liveByKey = Object.create(null);
@@ -977,16 +1008,15 @@
       rotation panel but excluded from the maths, which makes the adjustment conservative: an
       unlisted late scratch simply leaves the number where Elo had it.
       <br><br>
-      <b>Which win probability?</b> There are two ways to turn the same ratings into a
+      <b>A rejected alternative.</b> There are two ways to turn the same ratings into a
       probability: the logistic on the rating gap, or the share of historical margin errors that
-      would still leave a side ahead. They disagree by roughly a point, and this page used to
-      assume the logistic was right — until the simulation below made the disagreement visible.
-      <code>margin_vs_logistic.py</code> measured both on held-out games with the back-to-back
-      term still applied: the margin view wins, <b>0.6083 → 0.6075</b> log-loss and
-      <b>66.7% → 67.1%</b>, with a bootstrap interval that excludes zero. So this tab now uses it.
-      The same test on the NFL tab found no distinguishable difference, so that one keeps the
-      logistic — the answer was league-specific, which is exactly why it was worth measuring
-      rather than assuming.
+      would still leave a side ahead. The simulation below made them visibly disagree, and on one
+      holdout the margin version looked significantly better — it was briefly shipped. A fuller
+      evaluation across every season withdrew that: pooled, the two are
+      <b>indistinguishable</b> (−0.00042 log-loss, interval spanning zero), and the earlier result
+      came from the holdout happening to land on the two seasons where it led. The same test on
+      the NFL, over 24 seasons, splits 12–12. So the logistic stands, and the simulation is held
+      consistent with it. <code>margin_vs_logistic.py --rolling</code> reproduces this.
       <br><br>
       <b>How accurate is it?</b> K=${K}, home advantage and offseason regression were grid-searched
       on seasons through 2024, then scored on <b>2,777 games</b> from 2025 onward that the tuning

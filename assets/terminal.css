@@ -1389,3 +1389,17 @@
 @media (max-width: 900px) {
   .sim-grid { grid-template-columns: 1fr; gap: 16px; }
 }
+
+/* Histogram tooltip — the bars had only a native title, which is slow to
+   appear and looks nothing like the trend chart's. */
+.sim-hist { position: relative; }
+.sim-tip {
+  position: absolute; z-index: 5; pointer-events: none;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: 5px;
+  padding: 5px 8px; font-size: 11px; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+}
+.sim-bar { cursor: default; }
+.sim-bar:hover, .sim-bar:focus-visible { filter: brightness(1.35); outline: none; }

@@ -806,8 +806,12 @@
         const cls = b.lo >= 0 ? 'home' : 'away';
         const title = `${b.lo >= 0 ? esc(home) : esc(away)} by ${Math.abs(b.lo + (b.lo >= 0 ? 0 : W))}` +
                       `–${Math.abs(b.lo + (b.lo >= 0 ? W : 0))} · ${(b.p * 100).toFixed(1)}%`;
-        return `<span class="sim-bar ${cls}" style="height:${(b.p / peak * 100).toFixed(1)}%" title="${title}"></span>`;
+        return `<span class="sim-bar ${cls}" style="height:${(b.p / peak * 100).toFixed(1)}%" ` +
+               `data-tip="${title}" tabindex="0"></span>`;
       }).join('');
+      // A native title tooltip is slow, unstyled and inconsistent with the
+      // trend chart, which has a real one. Bars carry data-tip and the handler
+      // below positions a styled bubble.
       document.getElementById('sim-axis').innerHTML =
         `<span>${esc(away)} +35</span><span>even</span><span>${esc(home)} +35</span>`;
 
@@ -838,6 +842,40 @@
         'agreeing is the point. Everything else here is information the win probability alone ' +
         'cannot express.';
     }
+
+    /* Hover/focus tooltip for the margin histogram. Delegated once rather than
+     * per-bar, since the bars are re-rendered on every prediction change. */
+    (function simTooltip() {
+      const host = document.getElementById('sim-hist');
+      if (!host) return;
+      const tip = document.createElement('div');
+      tip.className = 'sim-tip';
+      tip.hidden = true;
+      host.parentNode.appendChild(tip);
+
+      const show = el => {
+        const t = el.getAttribute('data-tip');
+        if (!t) return;
+        tip.textContent = t;
+        tip.hidden = false;
+        const hb = host.getBoundingClientRect(), b = el.getBoundingClientRect();
+        const left = b.left - hb.left + b.width / 2;
+        tip.style.left = Math.max(0, Math.min(hb.width - tip.offsetWidth, left - tip.offsetWidth / 2)) + 'px';
+        tip.style.bottom = (hb.bottom - b.top + 6) + 'px';
+      };
+      const hide = () => { tip.hidden = true; };
+
+      host.addEventListener('mouseover', e => {
+        const b = e.target.closest('.sim-bar');
+        if (b) show(b);
+      });
+      host.addEventListener('mouseleave', hide);
+      host.addEventListener('focusin', e => {
+        const b = e.target.closest('.sim-bar');
+        if (b) show(b);
+      });
+      host.addEventListener('focusout', hide);
+    })();
 
     // Live scores (ESPN). Additive only — silent no-op if the feed is down.
     let liveByKey = Object.create(null);

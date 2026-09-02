@@ -17,7 +17,14 @@ only and scored on the holdout.
 No leakage: the residual distribution used to score a game is built only from
 games played before it, accumulated as the walk-forward proceeds.
 
-Usage:  python3 scripts/margin_vs_logistic.py
+Usage:
+    python3 scripts/margin_vs_logistic.py            # single holdout
+    python3 scripts/margin_vs_logistic.py --rolling  # every season, pooled
+
+The rolling mode exists because the single holdout misled: it showed the margin
+view significantly better for the NBA, that was shipped, and evaluating across
+all seasons withdrew it. The holdout had landed on the two seasons where the
+margin view happened to lead.
 """
 import bisect, csv, io, json, math, sys, urllib.request
 from collections import defaultdict
@@ -121,6 +128,8 @@ def acc(rows, f):
 
 
 def main():
+    if '--rolling' in sys.argv:
+        return rolling_main()
     for league, loader in [('nba', load_nba), ('nfl', load_nfl)]:
         print(f'\n── {league.upper()} ' + '─' * 56)
         rows = walk(league, loader())
@@ -161,6 +170,70 @@ def main():
               f'   (weight fitted on tuning only)')
         mean_gap = sum(abs(x['log'] - x['mar']) for x in hold) / len(hold)
         print(f'  they disagree by {mean_gap*100:.1f} points on average')
+    return 0
+
+
+
+
+# ── rolling-origin evaluation ────────────────────────────────────────────
+def rolling(league, rows):
+    """
+    Score the two estimators season by season instead of on one holdout.
+
+    The single-holdout test left the NFL underpowered: 854 games could not
+    separate the two, which is 'not proven' rather than 'shown equal'. Neither
+    estimator has parameters fitted per game — the margin view is a causal
+    transform of a residual pool built only from earlier games — so every season
+    with a mature pool is a fair paired comparison, and pooling them recovers
+    the power the single cutoff threw away.
+
+    The Elo constants were tuned on early seasons, but BOTH estimators share
+    them, so that bias cancels in a paired difference.
+    """
+    import random
+    random.seed(19)
+    by_season = defaultdict(list)
+    for x in rows:
+        by_season[x['season']].append(x)
+
+    print(f"\n  {'season':>8}{'n':>7}{'logistic':>11}{'margin':>10}{'diff':>10}")
+    print('  ' + '-' * 46)
+    wins = 0
+    seasons = sorted(by_season)
+    for s in seasons:
+        r = by_season[s]
+        a, b = ll(r, lambda x: x['log']), ll(r, lambda x: x['mar'])
+        if a > b:
+            wins += 1
+        print(f"  {s:>8}{len(r):>7}{a:>11.4f}{b:>10.4f}{a-b:>+10.4f}")
+
+    allrows = [x for s in seasons for x in by_season[s]]
+    d = [(-math.log(max(x['log'] if x['won'] else 1 - x['log'], EPS)))
+         - (-math.log(max(x['mar'] if x['won'] else 1 - x['mar'], EPS)))
+         for x in allrows]
+    n = len(d)
+    obs = sum(d) / n
+    B = 4000
+    boot = []
+    for _ in range(B):
+        t = 0.0
+        for _ in range(n):
+            t += d[random.randrange(n)]
+        boot.append(t / n)
+    boot.sort()
+    lo95, hi95 = boot[int(0.025 * B)], boot[int(0.975 * B)]
+    print(f"\n  pooled over {len(seasons)} seasons, n={n}")
+    print(f"  margin advantage {obs:+.5f}  95% CI [{lo95:+.5f}, {hi95:+.5f}]")
+    print(f"  margin better in {wins}/{len(seasons)} seasons  "
+          f"P(better) = {sum(1 for x in boot if x > 0)/B:.3f}")
+    print(f"  -> {'SIGNIFICANT' if lo95 > 0 else 'not distinguishable from noise'}")
+
+
+def rolling_main():
+    for league, loader in [('nba', load_nba), ('nfl', load_nfl)]:
+        print(f'\n── {league.upper()} rolling-origin ' + '─' * 40)
+        rows = walk(league, loader())
+        rolling(league, rows)
     return 0
 
 

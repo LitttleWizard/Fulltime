@@ -111,26 +111,22 @@ silently keep their built-in defaults.
 Run it once or twice a season. `build_nba_players.py` should be re-run on a
 similar cadence, or the scoring averages go stale.
 
-## Two win probabilities, and which one to use
+## Two win probabilities — and why the logistic stands
 
-The same Elo ratings yield a probability two ways: the logistic on the rating
-gap, or the share of historical margin errors that would still leave a side
-ahead. They disagree by about a point. This was invisible until the match
-simulation put both on screen.
+The same ratings yield a probability two ways: the logistic on the rating gap,
+or the share of historical margin errors that would still leave a side ahead.
+The match simulation made them visibly disagree.
 
-`scripts/margin_vs_logistic.py` settles it per league on held-out games, with a
-paired bootstrap:
+`scripts/margin_vs_logistic.py` tests both. **Run it with `--rolling`.** The
+single-holdout mode is what misled once already: it reported the margin view
+significantly better for the NBA (CI excluding zero), that was shipped, and the
+rolling evaluation withdrew it — the holdout had landed on the only two seasons
+where the margin view led. Pooled across all seasons it is indistinguishable
+(−0.00042, CI spanning zero), and so is the NFL over 24 seasons (12–12).
 
-- **NBA** — the margin view wins, and survives with the back-to-back term on
-  top: 0.6083 → 0.6075 log-loss, 66.7% → 67.1%, CI [+0.00008, +0.00152].
-  `nba.html` uses it.
-- **NFL** — no distinguishable difference (CI spans zero). `nfl.html` keeps the
-  logistic, and its simulation panel is shifted onto that base so the two views
-  agree on screen.
-
-The answer being league-specific is the reason to run the script rather than
-pick one. Re-run it if the constants or `eloPerPoint` change, since the margin
-view depends on that conversion.
+Both tabs use the logistic, with the simulation held consistent with it. The
+episode is the reason `--rolling` exists: a single cutoff can be a favourable
+window, and a bootstrap on that window will happily call it significant.
 
 ## Measuring accuracy
 

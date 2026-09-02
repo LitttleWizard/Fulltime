@@ -56,7 +56,8 @@ football. Shipped as display, not as a model input.
 | Roster moves / trades | No measurable effect | Kept as labelled context only |
 | Elo per point of spread | 22.8 measured, not the conventional 25 | Corrected |
 | Residual SD of margin | 13.5 pts over 6,758 games | Shown as ± on the spread |
-| Margin vs logistic win prob | +0.00039, CI spans zero | **No difference** — kept logistic |
+| Margin vs logistic, single holdout | +0.00039, CI spans zero | Underpowered at n=854 |
+| — same, rolling across 24 seasons | +0.00003, better in 12/24 | **No difference** — settled |
 
 ### NBA
 
@@ -68,7 +69,8 @@ football. Shipped as display, not as a model input.
 | Back-to-back (β 0.28) | 0.6099 → 0.6078 · 67.0% | **Shipped** |
 | Rest-day difference | 0.6101 — worse than Elo alone | **Rejected** |
 | Player availability (β 1.75) | 0.6068 → 0.5995 · 67.0% → 67.6%, betas +1.70 / +1.80 | **Shipped** — largest signal here |
-| Margin vs logistic, b2b applied | 0.6083 → 0.6075 · 66.7% → 67.1%, CI [+0.00008, +0.00152] | **Adopted** |
+| Margin vs logistic, single holdout | 0.6083 → 0.6075, CI [+0.00008, +0.00152] | Adopted, then **withdrawn** |
+| — same, rolling across all seasons | −0.00042 pooled, better in 3/6 seasons | **Rejected** — holdout was a lucky window |
 | Elo per point / residual SD | 20.1 · 14.2 pts over 8,150 games | Shown as ± |
 | Calibration | 65% calls land 65.5%; 75% land 77.0% | Well calibrated |
 
