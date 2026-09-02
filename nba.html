@@ -82,12 +82,12 @@
             <span class="vs">@</span>
             <select id="home-select" class="tb-select" aria-label="Home team"></select>
             <div class="tb-sep"></div>
-            <select id="fixture-select" class="tb-select tb-select-fixture" aria-label="Upcoming game"></select>
-            <div class="tb-sep"></div>
-            <div class="tb-btn qb-toggle" id="b2b-away" role="button" tabindex="0"
-                 title="Away team on the second night of a back-to-back">⚠ Away B2B</div>
-            <div class="tb-btn qb-toggle" id="b2b-home" role="button" tabindex="0"
-                 title="Home team on the second night of a back-to-back">⚠ Home B2B</div>
+            <div class="tb-group">
+              <div class="tb-btn qb-toggle" id="b2b-away" role="button" tabindex="0"
+                   title="Away team on the second night of a back-to-back">⚠ Away B2B</div>
+              <div class="tb-btn qb-toggle" id="b2b-home" role="button" tabindex="0"
+                   title="Home team on the second night of a back-to-back">⚠ Home B2B</div>
+            </div>
           </div>
         </div>
 
@@ -395,27 +395,27 @@
 
     const homeSelect = document.getElementById('home-select');
     const awaySelect = document.getElementById('away-select');
-    const fixtureSelect = document.getElementById('fixture-select');
+    // Which upcoming game is selected, as an index into `upcoming`, or null for
+    // a hand-picked pairing. This used to be a dropdown; the fixture rail on the
+    // right does the same job with the matchup and its odds visible, so the
+    // toolbar slot went back to the team pickers.
+    let selectedFixture = null;
     teams.forEach(t => {
       homeSelect.appendChild(new Option(teamName(t), t));
       awaySelect.appendChild(new Option(teamName(t), t));
-    });
-    fixtureSelect.appendChild(new Option('— manual selection —', ''));
-    upcoming.slice(0, 60).forEach((g, i) => {
-      fixtureSelect.appendChild(new Option(`${g.date} — ${g.away} @ ${g.home}`, i));
     });
 
     function selectDefault() {
       if (upcoming.length) {
         const g = upcoming[0];
         homeSelect.value = g.home; awaySelect.value = g.away;
-        fixtureSelect.value = '0';
+        selectedFixture = 0;
         b2bState.home = isB2B(elo, g.home, g.date);
         b2bState.away = isB2B(elo, g.away, g.date);
       } else {
         homeSelect.value = ranked[0].team;
         awaySelect.value = ranked[1].team;
-        fixtureSelect.value = '';
+        selectedFixture = null;
       }
       syncB2BButtons();
     }
@@ -438,20 +438,12 @@
       const h = homeSelect.value;
       homeSelect.value = awaySelect.value; awaySelect.value = h;
       const b = b2bState.home; b2bState.home = b2bState.away; b2bState.away = b;
-      fixtureSelect.value = ''; syncB2BButtons(); render();
+      selectedFixture = null; syncB2BButtons(); render();
     });
     document.getElementById('tb-reset').addEventListener('click', () => { selectDefault(); render(); });
 
-    fixtureSelect.addEventListener('change', () => {
-      if (fixtureSelect.value === '') return;
-      const g = upcoming[Number(fixtureSelect.value)];
-      homeSelect.value = g.home; awaySelect.value = g.away;
-      b2bState.home = isB2B(elo, g.home, g.date);
-      b2bState.away = isB2B(elo, g.away, g.date);
-      syncB2BButtons(); render();
-    });
-    homeSelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
-    awaySelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
+    homeSelect.addEventListener('change', () => { selectedFixture = null; render(); });
+    awaySelect.addEventListener('change', () => { selectedFixture = null; render(); });
 
     selectDefault();
 
@@ -495,7 +487,7 @@
           </div>`;
       }).join('');
       el.querySelectorAll('.wl-row').forEach(row => {
-        const go = () => { awaySelect.value = row.getAttribute('data-team'); fixtureSelect.value = ''; render(); };
+        const go = () => { awaySelect.value = row.getAttribute('data-team'); selectedFixture = null; render(); };
         row.addEventListener('click', go);
         row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
       });
@@ -580,6 +572,7 @@
       renderWatchlist();
       renderTrendChart(elo, home, away);
       renderRosters();
+      if (typeof renderWeekList === 'function') renderWeekList();
     }
 
     /* ── Rotation and availability ─────────────────────────────────────────
@@ -719,8 +712,10 @@
         const hPct = Math.round(p.homeWin * 100), aPct = 100 - hPct;
         const lv = liveFor(g.home, g.away);
         const isLive = lv && lv.state === 'in';
+        const isSel = g.home === homeSelect.value && g.away === awaySelect.value;
         return `
-          <button type="button" class="ticker-row${isLive ? ' is-live' : ''}" data-idx="${i}">
+          <button type="button" class="ticker-row${isLive ? ' is-live' : ''}${isSel ? ' is-selected' : ''}"
+                  data-idx="${i}"${isSel ? ' aria-current="true"' : ''}>
             <div class="ticker-top">
               ${isLive
                 ? `<span class="live-pill"><span class="blip"></span>LIVE Q${lv.period} ${esc(lv.clock || '')}</span>`
@@ -740,13 +735,18 @@
         row.addEventListener('click', () => {
           const g = list[Number(row.getAttribute('data-idx'))];
           homeSelect.value = g.home; awaySelect.value = g.away;
-          fixtureSelect.value = String(upcoming.indexOf(g));
+          selectedFixture = upcoming.indexOf(g);
           b2bState.home = isB2B(elo, g.home, g.date);
           b2bState.away = isB2B(elo, g.away, g.date);
           syncB2BButtons();
           render();
+          renderWeekList();                   // move the selected highlight
           const body = document.querySelector('.center-body');
           if (body) body.scrollTo({ top: 0, behavior: 'smooth' });
+          // On mobile the rail is its own panel, so surface the analysis.
+          if (window.FulltimeMobile && window.matchMedia('(max-width: 1080px)').matches) {
+            window.FulltimeMobile.show('center');
+          }
         });
       });
     }

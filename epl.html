@@ -92,8 +92,6 @@
             <select id="home-select" class="tb-select" aria-label="Home team"></select>
             <span class="vs">vs</span>
             <select id="away-select" class="tb-select" aria-label="Away team"></select>
-            <div class="tb-sep"></div>
-            <select id="fixture-select" class="tb-select tb-select-fixture" aria-label="Upcoming fixture"></select>
           </div>
         </div>
 
@@ -521,7 +519,7 @@
         const activate = () => {
           const team = row.getAttribute('data-team');
           awaySelect.value = team;
-          fixtureSelect.value = '';
+          selectedFixture = null;
           render();
         };
         row.addEventListener('click', activate);
@@ -573,16 +571,14 @@
 
     const homeSelect = document.getElementById('home-select');
     const awaySelect = document.getElementById('away-select');
-    const fixtureSelect = document.getElementById('fixture-select');
+    // Which upcoming fixture is selected, as an index into `upcomingFixtures`,
+    // or null for a hand-picked pairing. Replaced the toolbar dropdown: the
+    // fixture rail on the right shows the matchup and its odds already.
+    let selectedFixture = null;
 
     teams.forEach(t => {
       homeSelect.appendChild(new Option(t, t));
       awaySelect.appendChild(new Option(t, t));
-    });
-    fixtureSelect.appendChild(new Option('— manual selection —', ''));
-    upcomingFixtures.slice(0, 40).forEach((m, i) => {
-      const label = `${m.date} — ${m.team1} vs ${m.team2}`;
-      fixtureSelect.appendChild(new Option(label, i));
     });
 
     // Open on the next fixture that hasn't kicked off yet. The unplayed list can
@@ -599,11 +595,11 @@
         const m = upcomingFixtures[nextIdx];
         homeSelect.value = m.team1;
         awaySelect.value = m.team2;
-        fixtureSelect.value = nextIdx < 40 ? String(nextIdx) : '';
+        selectedFixture = nextIdx;
       } else {
         homeSelect.value = teams[0];
         awaySelect.value = teams[1] || teams[0];
-        fixtureSelect.value = '';
+        selectedFixture = null;
       }
     }
     selectDefault();
@@ -618,15 +614,8 @@
       refreshDetail().then(render);
     }
 
-    fixtureSelect.addEventListener('change', () => {
-      if (fixtureSelect.value === '') return;
-      const m = upcomingFixtures[Number(fixtureSelect.value)];
-      homeSelect.value = m.team1;
-      awaySelect.value = m.team2;
-      selectionChanged();
-    });
-    homeSelect.addEventListener('change', () => { fixtureSelect.value = ''; selectionChanged(); });
-    awaySelect.addEventListener('change', () => { fixtureSelect.value = ''; selectionChanged(); });
+    homeSelect.addEventListener('change', () => { selectedFixture = null; selectionChanged(); });
+    awaySelect.addEventListener('change', () => { selectedFixture = null; selectionChanged(); });
 
     // The chart is drawn at its box's pixel size, so redraw whenever that box
     // changes — initial layout settling, window resize, panel reflow.
@@ -650,7 +639,7 @@
       const h = homeSelect.value;
       homeSelect.value = awaySelect.value;
       awaySelect.value = h;
-      fixtureSelect.value = '';
+      selectedFixture = null;
       render();
     });
     document.getElementById('tb-reset').addEventListener('click', () => {
@@ -1017,7 +1006,7 @@
         const m = upcomingFixtures[i];
         homeSelect.value = m.team1;
         awaySelect.value = m.team2;
-        fixtureSelect.value = i < 40 ? String(i) : '';
+        selectedFixture = i;
         selectionChanged();
       }, ADVANCE_DELAY);
     }
@@ -1223,7 +1212,8 @@
         const favPct = Math.max(hPct, aPct);
         const isToday = m.date === todayStr;
         return `
-          <button type="button" class="ticker-row${isLive ? ' is-live' : ''}" data-idx="${upcomingFixtures.indexOf(m)}">
+          <button type="button" class="ticker-row${isLive ? ' is-live' : ''}${m.team1 === homeSelect.value && m.team2 === awaySelect.value ? ' is-selected' : ''}"
+                  data-idx="${upcomingFixtures.indexOf(m)}">
             <div class="ticker-top">
               ${isLive
                 ? `<span class="live-pill"><span class="blip"></span>LIVE ${lv.clock || ''}</span>`
@@ -1251,11 +1241,16 @@
           const m = upcomingFixtures[idx];
           homeSelect.value = m.team1;
           awaySelect.value = m.team2;
-          fixtureSelect.value = idx < 40 ? String(idx) : '';
-          render();
+          selectedFixture = idx;
+          selectionChanged();                 // drops stale detail, then refetches
+          renderWeekList();                   // move the selected highlight
           // Centre column scrolls internally in the app shell — reset it to the top.
           const body = document.querySelector('.center-body');
           if (body) body.scrollTo({ top: 0, behavior: 'smooth' });
+          // On mobile the rail is its own panel, so surface the analysis.
+          if (window.FulltimeMobile && window.matchMedia('(max-width: 1080px)').matches) {
+            window.FulltimeMobile.show('center');
+          }
         });
       });
     }

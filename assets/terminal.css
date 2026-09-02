@@ -394,7 +394,6 @@
     /* ── Toolbar (decorative + functional icon buttons) ── */
     .toolbar { display: flex; align-items: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
     .tb-select { flex: 1 1 130px; width: auto; max-width: 220px; }
-    .tb-select-fixture { flex: 1 1 200px; max-width: 280px; }
     .toolbar .vs { padding-top: 0; }
     .tb-btn {
       display: inline-flex;
@@ -416,6 +415,9 @@
       background: rgba(240,80,110,0.10);
     }
     .tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+    /* Paired toggles travel together: without this the toolbar wraps between
+       them and one drops to its own line once the team pickers grow. */
+    .tb-group { display: flex; gap: 6px; flex: 0 0 auto; }
 
     /* ── Quote panel (right column top) ── */
     .quote-panel { flex-shrink: 0; padding: 14px 16px 16px; border-bottom: 1px solid var(--border); }
@@ -1178,7 +1180,6 @@
   .toolbar #home-select { grid-column: 1; grid-row: 1; }
   .toolbar #away-select { grid-column: 2; grid-row: 1; }
   .toolbar #tb-swap     { grid-column: 3; grid-row: 1; }
-  .toolbar .tb-select-fixture { grid-column: 1 / -1; grid-row: 2; }
   .toolbar .tb-select {
     flex: none; width: 100%; max-width: none; min-width: 0;
     padding: 9px 10px; font-size: 16px;    /* 16px still avoids iOS zoom */
@@ -1190,16 +1191,17 @@
   .toolbar-nfl #away-select { grid-column: 1; grid-row: 1; }
   .toolbar-nfl #home-select { grid-column: 2; grid-row: 1; }
   .toolbar-nfl #tb-swap     { grid-column: 3; grid-row: 1; }
-  .toolbar-nfl .tb-select-fixture { grid-column: 1 / -1; grid-row: 2; }
+  /* the pair spans the row and splits it evenly */
+  .toolbar-nfl .tb-group {
+    grid-column: 1 / -1; grid-row: 2;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 7px;
+  }
   .toolbar-nfl .qb-toggle {
-    grid-row: 3;
     justify-content: center;
     padding: 9px 6px;
     min-width: 0;
     white-space: nowrap;
   }
-  .toolbar-nfl #qb-away { grid-column: 1 / 2; }
-  .toolbar-nfl #qb-home { grid-column: 2 / -1; }
 
   /* icon-only swap: the label is redundant next to two team pickers */
   .toolbar #tb-swap {
@@ -1280,3 +1282,12 @@
   .trend-end-dot.home, .trend-end-dot.away { filter: none; }
   .prob-fill, .metric-bar-fill, .sl-fill, .week-seg, .live-pill { box-shadow: none; }
 }
+
+/* The fixture rail replaced the toolbar dropdown, so it has to show which
+   match is on screen — otherwise nothing indicates the current selection. */
+.ticker-row.is-selected {
+  background: var(--surface2);
+  border-left: 2px solid var(--brand);
+  padding-left: 12px;
+}
+.ticker-row.is-selected .ticker-matchup { color: var(--text); font-weight: 600; }

@@ -92,12 +92,12 @@
             <span class="vs">@</span>
             <select id="home-select" class="tb-select" aria-label="Home team"></select>
             <div class="tb-sep"></div>
-            <select id="fixture-select" class="tb-select tb-select-fixture" aria-label="Upcoming game"></select>
-            <div class="tb-sep"></div>
-            <div class="tb-btn qb-toggle" id="qb-away" role="button" tabindex="0"
-                 title="Away team starting a backup/new QB">⚠ Away QB out</div>
-            <div class="tb-btn qb-toggle" id="qb-home" role="button" tabindex="0"
-                 title="Home team starting a backup/new QB">⚠ Home QB out</div>
+            <div class="tb-group">
+              <div class="tb-btn qb-toggle" id="qb-away" role="button" tabindex="0"
+                   title="Away team starting a backup/new QB">⚠ Away QB out</div>
+              <div class="tb-btn qb-toggle" id="qb-home" role="button" tabindex="0"
+                   title="Home team starting a backup/new QB">⚠ Home QB out</div>
+            </div>
           </div>
         </div>
 
@@ -495,27 +495,21 @@
 
     const homeSelect = document.getElementById('home-select');
     const awaySelect = document.getElementById('away-select');
-    const fixtureSelect = document.getElementById('fixture-select');
+    // Which upcoming game is selected, as an index into `upcoming`, or null for
+    // a hand-picked pairing. Replaced the toolbar dropdown: the fixture rail on
+    // the right does the same job with the matchup and odds already visible.
+    let selectedFixture = null;
     teams.forEach(t => {
       homeSelect.appendChild(new Option(teamName(t), t));
       awaySelect.appendChild(new Option(teamName(t), t));
     });
 
-    fixtureSelect.appendChild(new Option('— manual selection —', ''));
-    upcoming.slice(0, 60).forEach((g, i) => {
-      fixtureSelect.appendChild(new Option(`${g.date} — ${g.away} @ ${g.home}`, i));
-    });
 
-    if (upcoming.length) { homeSelect.value = upcoming[0].home; awaySelect.value = upcoming[0].away; fixtureSelect.value = '0'; }
+    if (upcoming.length) { homeSelect.value = upcoming[0].home; awaySelect.value = upcoming[0].away; selectedFixture = 0; }
     else { homeSelect.value = ranked[0].team; awaySelect.value = ranked[1].team; }
 
-    fixtureSelect.addEventListener('change', () => {
-      if (fixtureSelect.value === '') return;
-      const g = upcoming[Number(fixtureSelect.value)];
-      homeSelect.value = g.home; awaySelect.value = g.away; render();
-    });
-    homeSelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
-    awaySelect.addEventListener('change', () => { fixtureSelect.value = ''; render(); });
+    homeSelect.addEventListener('change', () => { selectedFixture = null; render(); });
+    awaySelect.addEventListener('change', () => { selectedFixture = null; render(); });
     // Expected starters aren't fetchable in the browser (nflverse depth charts are
     // release assets with no CORS header), so the QB signal is exposed as a manual
     // toggle — it lets you tell the model something it genuinely cannot know.
@@ -538,10 +532,10 @@
       const q = qbState.home; qbState.home = qbState.away; qbState.away = q;
       document.getElementById('qb-home').classList.toggle('is-on', qbState.home);
       document.getElementById('qb-away').classList.toggle('is-on', qbState.away);
-      fixtureSelect.value = ''; render();
+      selectedFixture = null; render();
     });
     document.getElementById('tb-reset').addEventListener('click', () => {
-      if (upcoming.length) { homeSelect.value = upcoming[0].home; awaySelect.value = upcoming[0].away; fixtureSelect.value = '0'; }
+      if (upcoming.length) { homeSelect.value = upcoming[0].home; awaySelect.value = upcoming[0].away; selectedFixture = 0; }
       else { homeSelect.value = ranked[0].team; awaySelect.value = ranked[1].team; }
       render();
     });
@@ -586,7 +580,7 @@
           </div>`;
       }).join('');
       el.querySelectorAll('.wl-row').forEach(row => {
-        const go = () => { awaySelect.value = row.getAttribute('data-team'); fixtureSelect.value = ''; render(); };
+        const go = () => { awaySelect.value = row.getAttribute('data-team'); selectedFixture = null; render(); };
         row.addEventListener('click', go);
         row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
       });
@@ -673,6 +667,7 @@
       renderWatchlist();
       renderMoves(home, away);
       renderTrendChart(elo, home, away);
+      if (typeof renderWeekList === 'function') renderWeekList();
     }
 
     // Live scores (ESPN). Additive only — silent no-op if the feed is down.
@@ -707,8 +702,10 @@
         const favHome = p.homeWin >= 0.5;
         const lv = liveFor(g.home, g.away);
         const isLive = lv && lv.state === 'in';
+        const isSel = g.home === homeSelect.value && g.away === awaySelect.value;
         return `
-          <button type="button" class="ticker-row${isLive ? ' is-live' : ''}" data-idx="${i}">
+          <button type="button" class="ticker-row${isLive ? ' is-live' : ''}${isSel ? ' is-selected' : ''}"
+                  data-idx="${i}"${isSel ? ' aria-current="true"' : ''}>
             <div class="ticker-top">
               ${isLive
                 ? `<span class="live-pill"><span class="blip"></span>LIVE Q${lv.period} ${lv.clock || ''}</span>`
@@ -728,10 +725,15 @@
         row.addEventListener('click', () => {
           const g = list[Number(row.getAttribute('data-idx'))];
           homeSelect.value = g.home; awaySelect.value = g.away;
-          fixtureSelect.value = String(upcoming.indexOf(g));
+          selectedFixture = upcoming.indexOf(g);
           render();
+          renderWeekList();                   // move the selected highlight
           const body = document.querySelector('.center-body');
           if (body) body.scrollTo({ top: 0, behavior: 'smooth' });
+          // On mobile the rail is its own panel, so surface the analysis.
+          if (window.FulltimeMobile && window.matchMedia('(max-width: 1080px)').matches) {
+            window.FulltimeMobile.show('center');
+          }
         });
       });
     }
