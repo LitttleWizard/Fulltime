@@ -18,6 +18,8 @@ JSON data files baked offline by the Python scripts in this repo.
 Every figure above is **held out** — scored on seasons the tuning never saw. In-sample
 numbers on a rating model are always flattering and always wrong, so they aren't quoted.
 
+See **[DEVLOG.md](DEVLOG.md)** for the full history and the reasoning behind each decision.
+
 ## Measure before building
 
 The recurring discipline here is that candidate signals get tested and are dropped when
