@@ -120,4 +120,9 @@ settings; that file is gitignored.
 
 ## Licence
 
-MIT — see `LICENSE`.
+**All rights reserved.** The source is public for reference and review; no
+licence is granted to reuse it. See `LICENSE`.
+
+Predictions are statistical estimates, not advice, and the accuracy figures
+above are historical measurements on held-out data rather than a forecast. Not
+affiliated with any league or data provider.

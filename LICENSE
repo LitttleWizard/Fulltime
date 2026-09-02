@@ -1,21 +1,29 @@
-MIT License
+Copyright (c) 2026 Aaron Ho. All rights reserved.
 
-Copyright (c) 2026 Aaron Ho
+This source code is made publicly visible for reference and review only. No
+licence is granted to use, copy, modify, merge, publish, distribute, sublicense
+or sell any part of it. Viewing the repository does not confer permission to
+reuse it.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+For any use beyond reading, contact the copyright holder.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+NO WARRANTY
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+The software is provided "as is", without warranty of any kind, express or
+implied, including but not limited to the warranties of merchantability,
+fitness for a particular purpose and noninfringement. In no event shall the
+author be liable for any claim, damages or other liability arising from, out of
+or in connection with the software or its use.
+
+NATURE OF THE OUTPUT
+
+The match predictions this software produces are statistical estimates derived
+from historical results. They are not advice of any kind, financial or
+otherwise, and carry no guarantee of accuracy — the published accuracy figures
+are historical measurements on held-out data, not a forecast of future
+performance. Any use in connection with wagering is entirely at the user's own
+risk.
+
+This project is not affiliated with, endorsed by, or connected to the Premier
+League, the NFL, the NBA, ESPN, EA, or any other rights holder. Data is
+retrieved from third-party sources that carry their own terms of use.
