@@ -85,6 +85,32 @@ but negligible in size. Don't talk it up; the page states the number.
   club's rolling baseline XI, so the shipped feature is identical to the tested
   one.
 
+## Re-tuning as seasons accumulate
+
+The ratings adapt on their own — every result moves them. The **constants** do
+not, and `scripts/retune.py` is the loop that updates those:
+
+```bash
+python3 scripts/retune.py            # report only
+python3 scripts/retune.py --write    # adopt improvements, save the config
+```
+
+It tunes on an expanding window (everything up to a cutoff) and scores both the
+candidate and the incumbent on the two most recent seasons, which neither was
+tuned on. It adopts **only** if the candidate wins by more than `--margin`
+(default 0.0005 log-loss). A grid search always finds something that looks
+better in-sample; requiring a holdout win is what stops the model drifting into
+overfit. It is entirely normal — and the correct outcome — for it to report
+KEEP and change nothing.
+
+Results go to `data/model-config.json`, which `nba.html` and `nfl.html` read at
+load and apply over their defaults. **Re-tuning needs no code change or deploy**
+beyond publishing that file. If the file is missing or unreadable the pages
+silently keep their built-in defaults.
+
+Run it once or twice a season. `build_nba_players.py` should be re-run on a
+similar cadence, or the scoring averages go stale.
+
 ## Measuring accuracy
 
 Report **held-out** numbers, never the tuning-era ones — they differ materially. Current

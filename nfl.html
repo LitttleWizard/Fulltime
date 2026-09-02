@@ -190,7 +190,11 @@
 
     // Calibrated 2026-08-30 by nfl_model.py: grid search on 2001-2022, scored on
     // a 2023+ holdout it never saw. 64.3% accuracy / 0.633 log-loss.
-    const K = 20, HOME_ADV = 48, REGRESS = 0.6, DEFAULT_RATING = 1500;
+    // Defaults, overridden by data/model-config.json when scripts/retune.py has
+    // fitted something better. Re-tuning therefore needs no code change — and
+    // retune.py only writes constants that beat these on a held-out slice.
+    let K = 20, HOME_ADV = 48, REGRESS = 0.6;
+    const DEFAULT_RATING = 1500;
 
     const TEAM_NAMES = {
       ARI:'Arizona Cardinals', ATL:'Atlanta Falcons', BAL:'Baltimore Ravens', BUF:'Buffalo Bills',
@@ -205,6 +209,30 @@
       OAK:'Oakland Raiders', SD:'San Diego Chargers', STL:'St. Louis Rams', LAR:'Los Angeles Rams', WSH:'Washington'
     };
     const teamName = t => TEAM_NAMES[t] || t;
+
+
+    /**
+     * Fitted constants, if retune.py has produced any. Loaded before the model
+     * is built so a re-tune takes effect on the next visit with no deploy.
+     * Silently keeps the defaults if the file is absent or unreadable — the
+     * page must work without it.
+     */
+    let modelFit = null;
+    try {
+      const r = await fetch('data/model-config.json', { cache: 'no-store' });
+      if (r.ok) {
+        const cfg = await r.json();
+        const m = cfg['nfl'];
+        if (m) {
+          modelFit = { ...m, generated: cfg.generated };
+          if (m.K != null) K = m.K;
+          if (m.homeAdv != null) HOME_ADV = m.homeAdv;
+          if (m.regress != null) REGRESS = m.regress;
+          if (m.eloPerPoint != null) ELO_PER_POINT = m.eloPerPoint;
+          if (m.spreadSd != null) SPREAD_SD = m.spreadSd;
+        }
+      }
+    } catch (e) { /* defaults stand */ }
 
     const loadingEl = document.getElementById('loading');
     const loadingStatus = document.getElementById('loading-status');
@@ -398,8 +426,8 @@
     // Residual SD of actual margin around the projected spread, measured on
     // 6,758 games since 2001. A spread quoted to one decimal reads far more
     // precise than the model is.
-    const SPREAD_SD = 13.5;
-    const ELO_PER_POINT = 22.8;   // measured, not the conventional 25
+    let SPREAD_SD = 13.5;
+    let ELO_PER_POINT = 22.8;     // measured, not the conventional 25
     let baseHomeWin = null;   // league home-win rate, from the loaded history
 
     const QB_BETA = 0.52;     // team starting a backup / new QB

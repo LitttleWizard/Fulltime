@@ -1,0 +1,22 @@
+{
+  "generated": "2026-09-02",
+  "nba": {
+    "K": 16,
+    "b2b": 0.28,
+    "eloPerPoint": 20.1,
+    "holdoutAcc": 0.6701,
+    "holdoutLogloss": 0.6078,
+    "homeAdv": 45,
+    "regress": 0.5,
+    "spreadSd": 14.2
+  },
+  "nfl": {
+    "K": 20,
+    "eloPerPoint": 22.8,
+    "holdoutAcc": 0.6608,
+    "holdoutLogloss": 0.6209,
+    "homeAdv": 48,
+    "regress": 0.6,
+    "spreadSd": 13.5
+  }
+}

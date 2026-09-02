@@ -182,12 +182,15 @@
     // on 2777 games from 2025-26 onward that the tuning never saw. Holdout
     // 66.5% / 0.6099 log-loss against 55.0% for always picking the home side.
     const DEFAULT_RATING = 1500;
-    const K = 16;
-    const HOME_ADV = 45;
-    const REGRESS = 0.50;        // carried across seasons; 50% pulled to the mean
+    // Defaults, overridden by data/model-config.json when scripts/retune.py has
+    // fitted something better. Re-tuning therefore needs no code change — and
+    // retune.py only writes constants that beat these on a held-out slice.
+    let K = 16;
+    let HOME_ADV = 45;
+    let REGRESS = 0.50;          // carried across seasons; 50% pulled to the mean
     // Back-to-back, fitted on <= 2024 and scored on the holdout by
     // nba_features.py: 0.6099 -> 0.6078 log-loss, 66.5% -> 67.0%.
-    const B2B_BETA = 0.28;
+    let B2B_BETA = 0.28;
     // Availability, measured by nba_players.py on 2,672 games with box scores:
     // 0.6068 -> 0.5995 log-loss and 67.0% -> 67.6%, cross-fitted betas +1.70/+1.80.
     // Applied here to a noisier input than it was fitted on — the backtest knew
@@ -197,16 +200,41 @@
     const AVAIL_BETA = 1.75;
     // Measured on 8150 games, regressing margin on the rating gap. The NFL tab
     // uses ~25; basketball's larger scores make each Elo point worth more.
-    const ELO_PER_POINT = 20.1;
+    let ELO_PER_POINT = 20.1;
     // Residual SD of actual margin around the projected spread, measured on all
     // 8,150 games. Quoting a spread to one decimal without this reads far more
     // precise than the model actually is.
-    const SPREAD_SD = 14.2;
+    let SPREAD_SD = 14.2;
     // League base rates, computed from the loaded history rather than hardcoded,
     // so "61%" can be read against how often the home side wins at all.
     let baseHomeWin = null;
     const SRC = 'data/nba-games.json';
     const UPCOMING_DAYS = 45;
+
+
+    /**
+     * Fitted constants, if retune.py has produced any. Loaded before the model
+     * is built so a re-tune takes effect on the next visit with no deploy.
+     * Silently keeps the defaults if the file is absent or unreadable — the
+     * page must work without it.
+     */
+    let modelFit = null;
+    try {
+      const r = await fetch('data/model-config.json', { cache: 'no-store' });
+      if (r.ok) {
+        const cfg = await r.json();
+        const m = cfg['nba'];
+        if (m) {
+          modelFit = { ...m, generated: cfg.generated };
+          if (m.K != null) K = m.K;
+          if (m.homeAdv != null) HOME_ADV = m.homeAdv;
+          if (m.regress != null) REGRESS = m.regress;
+          if (m.eloPerPoint != null) ELO_PER_POINT = m.eloPerPoint;
+          if (m.spreadSd != null) SPREAD_SD = m.spreadSd;
+          if (m.b2b != null) B2B_BETA = m.b2b;
+        }
+      }
+    } catch (e) { /* defaults stand */ }
 
     const loadingEl = document.getElementById('loading');
     const loadingStatus = document.getElementById('loading-status');

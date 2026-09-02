@@ -77,6 +77,15 @@ python3 fetch_nba_box.py       # nba-box.json      (~2,800 requests, ~20 min)
 python3 build_nba_players.py   # nba-players.json
 ```
 
+**Re-tuning** — the ratings adapt to every result on their own; the constants
+don't. This re-fits them on an expanding window and adopts new values only if
+they beat the shipped ones on seasons neither was tuned on:
+
+```bash
+python3 scripts/retune.py           # report
+python3 scripts/retune.py --write   # adopt improvements
+```
+
 **Testing** — the browser and the Python scripts must agree, since every accuracy
 figure comes from Python while visitors see numbers from `elo.js`:
 
