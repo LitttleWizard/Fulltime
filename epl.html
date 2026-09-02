@@ -195,17 +195,8 @@
         </div>
       </div>
 
-      <!-- QUOTES / FIXTURES -->
+      <!-- FIXTURES -->
       <div class="term-col term-quotes">
-        <div class="panel-head">
-          <div class="term-title">Quote</div>
-        </div>
-        <div class="quote-panel">
-          <div class="quote-team" id="quote-team">—</div>
-          <div class="quote-price" id="quote-price">—</div>
-          <div class="quote-stats" id="quote-stats"></div>
-        </div>
-
         <div class="panel-head">
           <div class="term-title" id="week-title">Upcoming Fixtures</div>
           <div class="term-tag live">Live</div>
@@ -227,6 +218,7 @@
     // Calibrated 2026-08-30 via calibrate_elo.py — walk-forward backtest over
     // 3,050 matches (2018-19..2026-27, first season as warm-up), minimizing
     // multiclass log-loss. See calibration-report.json for the full sweep.
+    let baseHomeWin = null;      // league home-win rate, from the loaded seasons
     const HOME_ADV = 50;
     const K = 20;
     const DEFAULT_RATING = 1500;
@@ -489,15 +481,36 @@
       return `Last ${h.length} meetings: ${hw}W ${home}, ${d}D, ${aw}W ${away}.`;
     }
 
+    /** team -> its next scheduled fixture, so the watchlist can say who's next. */
+    function nextByTeam() {
+      const out = Object.create(null);
+      for (const m of upcomingFixtures) {
+        if (!out[m.team1]) out[m.team1] = { opp: m.team2, home: true, date: m.date };
+        if (!out[m.team2]) out[m.team2] = { opp: m.team1, home: false, date: m.date };
+      }
+      return out;
+    }
+
     function renderWatchlist() {
       const home = homeSelect.value, away = awaySelect.value;
       const wlEl = document.getElementById('watchlist');
+      const next = nextByTeam();
+      const todayStr = new Date().toISOString().slice(0, 10);
+      // Position within the league's actual spread — a bare rating doesn't say
+      // whether it is remarkable.
+      const lo = Math.min(...ranked.map(r => r.rating));
+      const hi = Math.max(...ranked.map(r => r.rating));
+      const span = Math.max(hi - lo, 1);
       wlEl.innerHTML = ranked.map((r, i) => {
         const delta = ratingDelta(r.team);
         const deltaCls = delta == null ? 'flat' : delta > 0.5 ? 'up' : delta < -0.5 ? 'down' : 'flat';
         const deltaTxt = delta == null ? '—' : (delta > 0 ? '+' : '') + Math.round(delta);
         const rowCls = r.team === home ? 'is-home' : (r.team === away ? 'is-away' : '');
         const tag = r.team === home ? ' · HOME' : (r.team === away ? ' · AWAY' : '');
+        const nx = next[r.team];
+        const isToday = nx && nx.date === todayStr;
+        const nxTxt = nx ? `${nx.home ? 'vs' : '@'} ${esc(nx.opp)}${isToday ? '' : ' · ' + nx.date.slice(5)}` : '';
+        const pos = ((r.rating - lo) / span) * 100;
         return `
           <div class="wl-row ${rowCls}" data-team="${r.team}" tabindex="0" role="button">
             <div class="wl-name">
@@ -506,10 +519,12 @@
                 <span class="rank">#${i + 1}${tag}</span>
                 <span class="wl-form">${formPills(elo.history, r.team, 5, 'tiny')}</span>
               </span>
+              ${nxTxt ? `<span class="wl-next${isToday ? ' is-today' : ''}">${isToday ? 'TODAY ' : ''}${nxTxt}</span>` : ''}
             </div>
             <div class="wl-right">
               <div class="wl-rating">${Math.round(r.rating)}</div>
               <div class="wl-delta ${deltaCls}">${deltaTxt}</div>
+              <div class="wl-scale"><span style="width:${pos.toFixed(0)}%"></span></div>
             </div>
           </div>
         `;
@@ -554,6 +569,12 @@
         played.push({ day, home: m.team1, away: m.team2, hg: ft[0], ag: ft[1] });
       }));
       dcModel = fitDixonColes(played, latestDay);
+      // How often the home side actually wins, over the loaded seasons.
+      // Football's base rate is far lower than the American sports' because of
+      // draws — which is exactly why a bare percentage needs it alongside.
+      baseHomeWin = played.length
+        ? played.filter(g => g.hg > g.ag).length / played.length
+        : 0.45;
     } catch (e) {
       showError('Could not load Premier League match data right now (the data source may be temporarily unreachable). Try refreshing in a bit.');
       return;
@@ -699,12 +720,43 @@
 
       const fav = shown.homeWin > shown.awayWin ? home : away;
       const favPct = Math.round(Math.max(shown.homeWin, shown.awayWin) * 100);
+      const favIsHome = shown.homeWin > shown.awayWin;
+      const basePct = Math.round((baseHomeWin ?? 0.45) * 100);
+      const edge = favPct - basePct;
+      // Football's uncertainty is expressible directly from the expected goals:
+      // how much of the distribution finishes within a goal. Computed from
+      // lh/la rather than p.scorelines, which is truncated to the top five and
+      // would badly understate it.
+      const tight = (p.lh != null && p.la != null)
+        ? (() => {
+            const pois = lam => {
+              const out = []; let f = 1;
+              for (let k = 0; k <= 10; k++) { if (k) f *= k; out.push(Math.exp(-lam) * Math.pow(lam, k) / f); }
+              return out;
+            };
+            const ph = pois(p.lh), pa = pois(p.la);
+            let close = 0, tot = 0;
+            for (let x = 0; x <= 10; x++) for (let y = 0; y <= 10; y++) {
+              const q = ph[x] * pa[y]; tot += q;
+              if (Math.abs(x - y) <= 1) close += q;
+            }
+            return tot ? close / tot : null;
+          })()
+        : null;
       document.getElementById('verdict').innerHTML = `
         <div class="verdict-main">
           <span class="verdict-team">${fav}</span>
           <span class="pill-stat">FAVORED · ${favPct}%</span>
         </div>
         <div class="verdict-sub">Elo ${Math.round(p.Rh)} vs ${Math.round(p.Ra)} · Δ ${Math.round(p.Rh - p.Ra)}</div>
+        <div class="verdict-context">
+          <span class="vc-bar"><span class="vc-fill" style="width:${clamp(favPct, 0, 100)}%"></span>
+            <span class="vc-base" style="left:${clamp(basePct, 0, 100)}%"></span></span>
+          <span class="vc-note">${favIsHome
+            ? `home sides win ${basePct}% of the time — this call is ${edge >= 0 ? '+' : ''}${edge} on that`
+            : `an away favourite: home sides win ${basePct}% of the time`}` +
+            (tight != null ? ` · ${Math.round(tight * 100)}% chance it finishes within one goal` : '') + `</span>
+        </div>
       `;
 
       // Symbol header
@@ -720,15 +772,6 @@
       document.getElementById('symbol-price-label').textContent = `${fav} favored`;
 
       // Quote panel
-      document.getElementById('quote-team').textContent = fav;
-      document.getElementById('quote-price').textContent = favPct + '%';
-      document.getElementById('quote-stats').innerHTML = `
-        <div class="quote-stat-row"><span class="k">${home} Elo</span><span class="v">${Math.round(p.Rh)}</span></div>
-        <div class="quote-stat-row"><span class="k">${away} Elo</span><span class="v">${Math.round(p.Ra)}</span></div>
-        <div class="quote-stat-row"><span class="k">Rating gap</span><span class="v">${Math.round(p.Rh - p.Ra)}</span></div>
-        <div class="quote-stat-row"><span class="k">Draw probability</span><span class="v">${Math.round(p.draw * 100)}%</span></div>
-      `;
-
       renderWatchlist();
 
       // Likeliest scorelines — only Dixon-Coles can produce these

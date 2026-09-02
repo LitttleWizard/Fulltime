@@ -163,17 +163,8 @@
         </div>
       </div>
 
-      <!-- QUOTE / SCHEDULE -->
+      <!-- SCHEDULE -->
       <div class="term-col term-quotes">
-        <div class="panel-head">
-          <div class="term-title">Quote</div>
-        </div>
-        <div class="quote-panel">
-          <div class="quote-team" id="quote-team">—</div>
-          <div class="quote-price" id="quote-price">—</div>
-          <div class="quote-stats" id="quote-stats"></div>
-        </div>
-
         <div class="panel-head">
           <div class="term-title" id="week-title">Upcoming Games</div>
           <div class="term-tag live">Live</div>
@@ -404,6 +395,13 @@
     // recorded after the game (absent on all 272 upcoming fixtures), so they
     // can't feed a prediction whatever they score in backtest. Roof/indoor was
     // fitted to ~0 jointly and contributes nothing, so it's left out.
+    // Residual SD of actual margin around the projected spread, measured on
+    // 6,758 games since 2001. A spread quoted to one decimal reads far more
+    // precise than the model is.
+    const SPREAD_SD = 13.5;
+    const ELO_PER_POINT = 22.8;   // measured, not the conventional 25
+    let baseHomeWin = null;   // league home-win rate, from the loaded history
+
     const QB_BETA = 0.52;     // team starting a backup / new QB
     const REST_BETA = 0.18;   // rest-day advantage, per 7 days
     const DIV_BETA = -0.05;   // divisional games run slightly closer
@@ -426,9 +424,10 @@
       if (game && game.div) { adj.div = DIV_BETA; z += adj.div; }
 
       const homeWin = 1 / (1 + Math.exp(-z));
-      // Elo point gap -> point spread. ~25 Elo per point is the standard
-      // conversion used for NFL ratings.
-      const spread = (z * 400 / Math.LN10) / 25;
+      // Elo point gap -> point spread. 25 is the conventional NFL figure, but
+      // regressing margin on the rating gap over 6,758 games since 2001 gives
+      // 22.8 for this model, so use the measured value rather than the folklore.
+      const spread = (z * 400 / Math.LN10) / ELO_PER_POINT;
       return {
         homeWin, awayWin: 1 - homeWin, Rh, Ra, spread, qbNet, adj,
         sHome: UI.recentStats(elo.history, home, 8),
@@ -489,6 +488,13 @@
       showError('Could not load NFL game data right now (the nflverse source may be temporarily unreachable). Try refreshing in a bit.');
       return;
     }
+
+    // How often the home side actually wins, over the loaded history — gives a
+    // percentage something to be read against.
+    const decided = games.filter(g => g.played && g.hs !== g.as);
+    baseHomeWin = decided.length
+      ? decided.filter(g => g.hs > g.as).length / decided.length
+      : 0.5;
 
     const ranked = teams.map(t => ({ team: t, rating: elo.ratings[t] ?? DEFAULT_RATING }))
                         .sort((a, b) => b.rating - a.rating);
@@ -554,9 +560,26 @@
       }).observe(box);
     })();
 
+    /** team -> its next scheduled game, so the watchlist can say who's next. */
+    function nextByTeam() {
+      const out = Object.create(null);
+      for (const g of upcoming) {
+        if (!out[g.home]) out[g.home] = { opp: g.away, home: true, date: g.date };
+        if (!out[g.away]) out[g.away] = { opp: g.home, home: false, date: g.date };
+      }
+      return out;
+    }
+
     function renderWatchlist() {
       const home = homeSelect.value, away = awaySelect.value;
       const el = document.getElementById('watchlist');
+      const next = nextByTeam();
+      const todayStr = new Date().toISOString().slice(0, 10);
+      // Position within the league's actual spread — a bare rating doesn't say
+      // whether it is remarkable.
+      const lo = Math.min(...ranked.map(r => r.rating));
+      const hi = Math.max(...ranked.map(r => r.rating));
+      const span = Math.max(hi - lo, 1);
       el.innerHTML = ranked.map((r, i) => {
         const trail = elo.ratingTrail[r.team] || [];
         const d = trail.length > 1 ? trail[trail.length - 1].rating - trail[trail.length - 2].rating : null;
@@ -564,6 +587,10 @@
         const txt = d == null ? '—' : (d > 0 ? '+' : '') + Math.round(d);
         const rowCls = r.team === home ? 'is-home' : (r.team === away ? 'is-away' : '');
         const tag = r.team === home ? ' · HOME' : (r.team === away ? ' · AWAY' : '');
+        const nx = next[r.team];
+        const isToday = nx && nx.date === todayStr;
+        const nxTxt = nx ? `${nx.home ? 'vs' : '@'} ${nx.opp}${isToday ? '' : ' · ' + nx.date.slice(5)}` : '';
+        const pos = ((r.rating - lo) / span) * 100;
         return `
           <div class="wl-row ${rowCls}" data-team="${r.team}" tabindex="0" role="button">
             <div class="wl-name">
@@ -572,10 +599,12 @@
                 <span class="rank">#${i + 1}${tag}</span>
                 <span class="wl-form">${formPills(elo.history, r.team, 5, 'tiny')}</span>
               </span>
+              ${nxTxt ? `<span class="wl-next${isToday ? ' is-today' : ''}">${isToday ? 'TODAY ' : ''}${nxTxt}</span>` : ''}
             </div>
             <div class="wl-right">
               <div class="wl-rating">${Math.round(r.rating)}</div>
               <div class="wl-delta ${cls}">${txt}</div>
+              <div class="wl-scale"><span style="width:${pos.toFixed(0)}%"></span></div>
             </div>
           </div>`;
       }).join('');
@@ -605,6 +634,8 @@
       const fav = favHome ? home : away;
       const favPct = Math.max(hPct, aPct);
       const spread = Math.abs(p.spread);
+      const basePct = Math.round((baseHomeWin ?? 0.5) * 100);
+      const edge = favPct - basePct;
 
       document.getElementById('sym-home').textContent = teamName(home);
       document.getElementById('sym-away').textContent = teamName(away);
@@ -621,7 +652,14 @@
           <span class="verdict-team">${teamName(fav)}</span>
           <span class="pill-stat">FAVORED · ${favPct}%</span>
         </div>
-        <div class="verdict-sub">Projected spread ${fav} −${spread.toFixed(1)} · Elo ${Math.round(p.Rh)} vs ${Math.round(p.Ra)}</div>`;
+        <div class="verdict-sub">Projected spread ${fav} −${spread.toFixed(1)} ± ${SPREAD_SD.toFixed(0)} · Elo ${Math.round(p.Rh)} vs ${Math.round(p.Ra)}</div>
+        <div class="verdict-context">
+          <span class="vc-bar"><span class="vc-fill" style="width:${UI.clamp(favPct, 0, 100)}%"></span>
+            <span class="vc-base" style="left:${UI.clamp(basePct, 0, 100)}%"></span></span>
+          <span class="vc-note">${favHome
+            ? `home sides win ${basePct}% of the time — this call is ${edge >= 0 ? '+' : ''}${edge} on that`
+            : `an away favourite: home sides win ${basePct}% of the time`}</span>
+        </div>`;
 
       const proj = projectScore(home, away);
       const projEl = document.getElementById('projected');
@@ -635,16 +673,9 @@
             <span class="proj-pts">${proj.home.toFixed(0)}</span>
             <span class="proj-team home">${home}</span>
             <span class="proj-total">total ${proj.total.toFixed(0)}</span>
-          </div>` : '';
+          </div>
+          <div class="proj-note">margins scatter about ${SPREAD_SD.toFixed(0)} points either side of this</div>` : '';
       }
-
-      document.getElementById('quote-team').textContent = teamName(fav);
-      document.getElementById('quote-price').textContent = favPct + '%';
-      document.getElementById('quote-stats').innerHTML = `
-        <div class="quote-stat-row"><span class="k">${teamName(home)} Elo</span><span class="v">${Math.round(p.Rh)}</span></div>
-        <div class="quote-stat-row"><span class="k">${teamName(away)} Elo</span><span class="v">${Math.round(p.Ra)}</span></div>
-        <div class="quote-stat-row"><span class="k">Rating gap</span><span class="v">${Math.round(p.Rh - p.Ra)}</span></div>
-        <div class="quote-stat-row"><span class="k">Projected spread</span><span class="v">${fav} −${spread.toFixed(1)}</span></div>`;
 
       document.getElementById('metric-legend').innerHTML = `
         <div class="legend-item"><span class="legend-swatch" style="background:var(--series-away)"></span>${teamName(away)}</div>
@@ -747,7 +778,10 @@
       NFL rosters turn over far more than football squads do.
       <br><br>
       Win probability comes from the rating gap plus a +${HOME_ADV}-point home-field advantage; the
-      projected spread converts that gap at the standard ~25 Elo points per point of spread.
+      projected spread converts that gap at <b>${ELO_PER_POINT} Elo points per point</b> — the
+      conventional figure is 25, but regressing actual margin on the rating gap over 6,758 games
+      gives 22.8 for this model, and a measured constant beats a borrowed one. The spread is a
+      central estimate around real noise: margins scatter about ${SPREAD_SD} points either side of it.
       <br><br>
       <b>Why Elo here and Dixon-Coles on the EPL tab?</b> That model treats goals as Poisson, which
       works when scores are small integers arriving one at a time. NFL points come in 7s and 3s, and

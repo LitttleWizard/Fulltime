@@ -160,17 +160,8 @@
         </div>
       </div>
 
-      <!-- QUOTE / SCHEDULE -->
+      <!-- SCHEDULE -->
       <div class="term-col term-quotes">
-        <div class="panel-head">
-          <div class="term-title">Quote</div>
-        </div>
-        <div class="quote-panel">
-          <div class="quote-team" id="quote-team">—</div>
-          <div class="quote-price" id="quote-price">—</div>
-          <div class="quote-stats" id="quote-stats"></div>
-        </div>
-
         <div class="panel-head">
           <div class="term-title" id="week-title">Upcoming Games</div>
           <div class="term-tag live">Live</div>
@@ -207,6 +198,13 @@
     // Measured on 8150 games, regressing margin on the rating gap. The NFL tab
     // uses ~25; basketball's larger scores make each Elo point worth more.
     const ELO_PER_POINT = 20.1;
+    // Residual SD of actual margin around the projected spread, measured on all
+    // 8,150 games. Quoting a spread to one decimal without this reads far more
+    // precise than the model actually is.
+    const SPREAD_SD = 14.2;
+    // League base rates, computed from the loaded history rather than hardcoded,
+    // so "61%" can be read against how often the home side wins at all.
+    let baseHomeWin = null;
     const SRC = 'data/nba-games.json';
     const UPCOMING_DAYS = 45;
 
@@ -389,6 +387,12 @@
       return;
     }
 
+    // How often the home side actually wins, over the loaded history. Used to
+    // give a percentage something to be read against.
+    baseHomeWin = games.length
+      ? games.filter(g => g.hs > g.as).length / games.length
+      : 0.5;
+
     teams = Object.keys(elo.ratings).sort((a, b) => teamName(a).localeCompare(teamName(b)));
     ranked = teams.map(t => ({ team: t, rating: elo.ratings[t] }))
                   .sort((a, b) => b.rating - a.rating);
@@ -461,9 +465,26 @@
       }).observe(box);
     })();
 
+    /** team -> its next scheduled game, so the watchlist can say who's next. */
+    function nextByTeam() {
+      const out = Object.create(null);
+      for (const g of upcoming) {
+        if (!out[g.home]) out[g.home] = { opp: g.away, home: true, date: g.date };
+        if (!out[g.away]) out[g.away] = { opp: g.home, home: false, date: g.date };
+      }
+      return out;
+    }
+
     function renderWatchlist() {
       const home = homeSelect.value, away = awaySelect.value;
       const el = document.getElementById('watchlist');
+      const next = nextByTeam();
+      const todayStr = new Date().toISOString().slice(0, 10);
+      // Rating alone doesn't say whether 1754 is remarkable; position within the
+      // league's actual spread does.
+      const lo = Math.min(...ranked.map(r => r.rating));
+      const hi = Math.max(...ranked.map(r => r.rating));
+      const span = Math.max(hi - lo, 1);
       el.innerHTML = ranked.map((r, i) => {
         const trail = elo.ratingTrail[r.team] || [];
         const d = trail.length > 1 ? trail[trail.length - 1].rating - trail[trail.length - 2].rating : null;
@@ -471,6 +492,12 @@
         const txt = d == null ? '—' : (d > 0 ? '+' : '') + Math.round(d);
         const rowCls = r.team === home ? 'is-home' : (r.team === away ? 'is-away' : '');
         const tag = r.team === home ? ' · HOME' : (r.team === away ? ' · AWAY' : '');
+        const nx = next[r.team];
+        const isToday = nx && nx.date === todayStr;
+        const nxTxt = nx
+          ? `${nx.home ? 'vs' : '@'} ${esc(nx.opp)}${isToday ? '' : ' · ' + nx.date.slice(5)}`
+          : '';
+        const pos = ((r.rating - lo) / span) * 100;
         return `
           <div class="wl-row ${rowCls}" data-team="${esc(r.team)}" tabindex="0" role="button">
             <div class="wl-name">
@@ -479,10 +506,12 @@
                 <span class="rank">#${i + 1}${tag}</span>
                 <span class="wl-form">${formPills(elo.history, r.team, 5, 'tiny')}</span>
               </span>
+              ${nxTxt ? `<span class="wl-next${isToday ? ' is-today' : ''}">${isToday ? 'TODAY ' : ''}${nxTxt}</span>` : ''}
             </div>
             <div class="wl-right">
               <div class="wl-rating">${Math.round(r.rating)}</div>
               <div class="wl-delta ${cls}">${txt}</div>
+              <div class="wl-scale"><span style="width:${pos.toFixed(0)}%"></span></div>
             </div>
           </div>`;
       }).join('');
@@ -510,6 +539,8 @@
       const fav = favHome ? home : away;
       const favPct = Math.max(hPct, aPct);
       const spread = Math.abs(p.spread);
+      const basePct = Math.round((baseHomeWin ?? 0.5) * 100);
+      const edge = favPct - basePct;
 
       document.getElementById('sym-home').textContent = teamName(home);
       document.getElementById('sym-away').textContent = teamName(away);
@@ -528,7 +559,14 @@
           <span class="verdict-team">${esc(teamName(fav))}</span>
           <span class="pill-stat">FAVORED · ${favPct}%</span>
         </div>
-        <div class="verdict-sub">Projected spread ${esc(fav)} −${spread.toFixed(1)} · Elo ${Math.round(p.Rh)} vs ${Math.round(p.Ra)}</div>`;
+        <div class="verdict-sub">Projected spread ${esc(fav)} −${spread.toFixed(1)} ± ${SPREAD_SD.toFixed(0)} · Elo ${Math.round(p.Rh)} vs ${Math.round(p.Ra)}</div>
+        <div class="verdict-context">
+          <span class="vc-bar"><span class="vc-fill" style="width:${clamp(favPct, 0, 100)}%"></span>
+            <span class="vc-base" style="left:${clamp(basePct, 0, 100)}%"></span></span>
+          <span class="vc-note">${favHome
+            ? `home sides win ${basePct}% of the time — this call is ${edge >= 0 ? '+' : ''}${edge} on that`
+            : `an away favourite: home sides win ${basePct}% of the time`}</span>
+        </div>`;
 
       const proj = projectScore(elo, home, away);
       const projEl = document.getElementById('projected');
@@ -541,15 +579,8 @@
           <span class="proj-pts">${proj.home.toFixed(0)}</span>
           <span class="proj-team home">${esc(home)}</span>
           <span class="proj-total">total ${proj.total.toFixed(0)}</span>
-        </div>` : '';
-
-      document.getElementById('quote-team').textContent = teamName(fav);
-      document.getElementById('quote-price').textContent = favPct + '%';
-      document.getElementById('quote-stats').innerHTML = `
-        <div class="quote-stat-row"><span class="k">${esc(teamName(home))} Elo</span><span class="v">${Math.round(p.Rh)}</span></div>
-        <div class="quote-stat-row"><span class="k">${esc(teamName(away))} Elo</span><span class="v">${Math.round(p.Ra)}</span></div>
-        <div class="quote-stat-row"><span class="k">Rating gap</span><span class="v">${Math.round(p.Rh - p.Ra)}</span></div>
-        <div class="quote-stat-row"><span class="k">Projected spread</span><span class="v">${esc(fav)} −${spread.toFixed(1)}</span></div>`;
+        </div>
+        <div class="proj-note">margins scatter about ${SPREAD_SD.toFixed(0)} points either side of this</div>` : '';
 
       document.getElementById('metric-legend').innerHTML = `
         <div class="legend-item"><span class="legend-swatch" style="background:var(--series-away)"></span>${esc(teamName(away))}</div>

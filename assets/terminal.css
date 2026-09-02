@@ -73,7 +73,6 @@
     /* rails tinted so the three columns read as distinct surfaces */
     :root[data-theme="light"] .term-watchlist,
     :root[data-theme="light"] .term-quotes { background: var(--rail); }
-    :root[data-theme="light"] .quote-panel { background: var(--surface); }
     :root[data-theme="light"] nav {
       box-shadow: 0 1px 3px rgba(15,23,42,0.05);
       position: relative; z-index: 10;
@@ -420,13 +419,6 @@
     .tb-group { display: flex; gap: 6px; flex: 0 0 auto; }
 
     /* ── Quote panel (right column top) ── */
-    .quote-panel { flex-shrink: 0; padding: 14px 16px 16px; border-bottom: 1px solid var(--border); }
-    .quote-team { font-size: 15px; font-weight: 700; color: var(--text); }
-    .quote-price { font-family: 'JetBrains Mono', monospace; font-size: 34px; font-weight: 700; line-height: 1.1; margin-top: 4px; color: var(--brand); }
-    .quote-stats { margin-top: 12px; display: flex; flex-direction: column; gap: 7px; }
-    .quote-stat-row { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; }
-    .quote-stat-row .k { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .quote-stat-row .v { font-family: 'JetBrains Mono', monospace; color: var(--text); font-weight: 500; flex-shrink: 0; }
 
     /* ── Chart view tabs ── */
     .chart-tabs { display: flex; gap: 2px; background: var(--surface2);
@@ -1291,3 +1283,47 @@
   padding-left: 12px;
 }
 .ticker-row.is-selected .ticker-matchup { color: var(--text); font-weight: 600; }
+
+/* ── Density additions ──────────────────────────────────────────────────
+   The Quote panel used to repeat the header verbatim; that column is now
+   fixtures, and the information it carried moved to where it earns space. */
+
+/* Watchlist: who a team plays next, and where its rating sits in the league's
+   actual spread — a bare 1754 doesn't say whether that is remarkable. */
+.wl-next {
+  display: block; margin-top: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wl-next.is-today { color: var(--brand); font-weight: 600; }
+
+.wl-scale {
+  width: 46px; height: 3px; margin-top: 5px; margin-left: auto;
+  background: var(--surface2); border-radius: 2px; overflow: hidden;
+}
+.wl-scale span { display: block; height: 100%; background: var(--border-strong); }
+.wl-row.is-home .wl-scale span { background: var(--series-home); }
+.wl-row.is-away .wl-scale span { background: var(--series-away); }
+
+/* A percentage needs something to be read against: the marker is the league's
+   own home-win base rate. */
+.verdict-context { margin-top: 9px; }
+.vc-bar {
+  position: relative; display: block; height: 4px;
+  background: var(--surface2); border-radius: 2px; overflow: visible;
+}
+.vc-fill { display: block; height: 100%; background: var(--brand); border-radius: 2px; }
+.vc-base {
+  position: absolute; top: -3px; width: 1px; height: 10px;
+  background: var(--text); opacity: 0.55;
+}
+.vc-note {
+  display: block; margin-top: 5px;
+  font-size: 10.5px; color: var(--muted); line-height: 1.45;
+}
+
+/* The spread is a central estimate around a lot of noise; say so. */
+.proj-note {
+  margin-top: 5px; font-size: 10.5px; color: var(--muted); font-style: italic;
+}
