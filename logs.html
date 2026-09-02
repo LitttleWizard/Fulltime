@@ -140,6 +140,7 @@
             <div class="tb-btn is-on" data-f="all">All</div>
             <div class="tb-btn" data-f="EPL">EPL</div>
             <div class="tb-btn" data-f="NFL">NFL</div>
+            <div class="tb-btn" data-f="NBA">NBA</div>
             <div class="tb-sep"></div>
             <div class="tb-btn" data-f="miss">Misses only</div>
             <div class="tb-btn" data-f="upset">Upsets (&lt;35%)</div>
@@ -182,6 +183,10 @@
     const DC_REFIT_EVERY = 15;
     const NFL_FIRST = 2019, NFL_LOG_FROM = 2023;
     const K = 20, HOME_ADV = 48, REGRESS = 0.6, DEF = 1500;
+    // NBA, from nba_model.py / nba_features.py. NBA_LOG_FROM starts the log at
+    // the held-out era, so the record covers seasons the tuning never saw.
+    const NBA_K = 16, NBA_HOME = 45, NBA_REGRESS = 0.50, NBA_B2B = 0.28;
+    const NBA_LOG_FROM = 2025;
 
     const loadingEl = document.getElementById('loading');
     const statusEl = document.getElementById('loading-status');
@@ -317,12 +322,78 @@
       return rows;
     }
 
+    /**
+     * NBA: Elo with the margin multiplier, plus the back-to-back adjustment.
+     *
+     * Note this is NOT quite the model the NBA tab shows live — that also
+     * applies a player-availability term, which needs box scores this page does
+     * not ship (1.4 MB, and one ESPN request per game to rebuild). So the
+     * logged record is the Elo + back-to-back model, and if anything understates
+     * the live one: availability was measured at +0.6 points of accuracy.
+     */
+    async function nbaLog() {
+      statusEl.textContent = 'Loading NBA games…';
+      const r = await fetch('data/nba-games.json');
+      if (!r.ok) return [];
+      const doc = await r.json();
+      nbaTeams = doc.teams || {};
+      const games = (doc.games || []).slice()
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      statusEl.textContent = 'Replaying NBA predictions…';
+      const ratings = {}, last = {}, rows = [];
+      let prev = null;
+      for (const g of games) {
+        if (prev !== null && g.season !== prev) {
+          for (const t in ratings) ratings[t] = DEF + (ratings[t] - DEF) * NBA_REGRESS;
+          for (const t in last) delete last[t];      // rest resets over an offseason
+        }
+        prev = g.season;
+
+        const Rh = ratings[g.home] ?? DEF, Ra = ratings[g.away] ?? DEF;
+        const dr = Rh - Ra + (g.neutral ? 0 : NBA_HOME);
+        const day = dayNum(g.date);
+        const b2bH = last[g.home] != null && day - last[g.home] === 1;
+        const b2bA = last[g.away] != null && day - last[g.away] === 1;
+        let z = Math.log(10) * dr / 400;
+        z += NBA_B2B * ((b2bA ? 1 : 0) - (b2bH ? 1 : 0));
+        const pHome = 1 / (1 + Math.exp(-z));
+        const margin = g.hs - g.as;
+
+        if (g.season >= NBA_LOG_FROM && margin !== 0) {
+          const homePick = pHome >= 0.5;
+          rows.push({
+            lg: 'NBA', date: g.date, home: g.home, away: g.away,
+            pick: homePick ? 'HOME' : 'AWAY',
+            pickName: homePick ? g.home : g.away,
+            pickP: Math.max(pHome, 1 - pHome),
+            pOfActual: margin > 0 ? pHome : 1 - pHome,
+            score: `${g.hs}–${g.as}`, hit: homePick === (margin > 0)
+          });
+        }
+
+        // rating update uses the plain Elo expectation, not the b2b-adjusted
+        // one — the adjustment informs the prediction, it is not a result
+        const pElo = 1 / (1 + Math.pow(10, -dr / 400));
+        const won = margin > 0 ? 1 : 0;
+        const mult = Math.pow(Math.abs(margin) + 3, 0.8) /
+                     (7.5 + 0.006 * (won ? dr : -dr));
+        const d = NBA_K * mult * (won - pElo);
+        ratings[g.home] = Rh + d; ratings[g.away] = Ra - d;
+        last[g.home] = day; last[g.away] = day;
+      }
+      nbaRatings = ratings; nbaLastPlayed = last;
+      nbaSeen = new Set(rows.map(r => `${r.date}|${r.home}|${r.away}`));
+      return rows;
+    }
+
     // ── Run ──────────────────────────────────────────────────────────────
     // In-play calibration is measured offline (one ESPN request per match, far
     // too many for page load) by inplay_backtest.py. Optional: if the snapshot
     // isn't there, the in-play tab just says so.
-    let eplModel = null, nflRatings = null;
-    let eplSeen = new Set(), nflSeen = new Set();
+    let eplModel = null, nflRatings = null, nbaRatings = null;
+    let nbaLastPlayed = {}, nbaTeams = {};
+    let eplSeen = new Set(), nflSeen = new Set(), nbaSeen = new Set();
 
     let inplay = null;
     try {
@@ -332,8 +403,8 @@
 
     let all = [];
     try {
-      const [e, n] = await Promise.all([eplLog(), nflLog()]);
-      all = e.concat(n).sort((a, b) => b.date.localeCompare(a.date));   // newest first
+      const [e, n, b] = await Promise.all([eplLog(), nflLog(), nbaLog()]);
+      all = e.concat(n, b).sort((a, b2) => b2.date.localeCompare(a.date));  // newest first
       if (!all.length) throw new Error('no rows');
     } catch (err) {
       loadingEl.style.display = 'none';
@@ -356,7 +427,8 @@
 
     function renderSummary() {
       const groups = [['All', all], ['Premier League', all.filter(r => r.lg === 'EPL')],
-                      ['NFL', all.filter(r => r.lg === 'NFL')]];
+                      ['NFL', all.filter(r => r.lg === 'NFL')],
+                      ['NBA', all.filter(r => r.lg === 'NBA')]];
       document.getElementById('summary').innerHTML = groups.map(([name, rows]) => {
         const s = stats(rows);
         if (!s) return '';
@@ -402,6 +474,12 @@
             <br><br>
             A hit rate near the average confidence is the goal. Being <i>right more often</i> than
             you claimed is not a win — it means the probabilities were too timid.
+            <br><br>
+            <b style="color:var(--text)">One caveat on the NBA row.</b> It replays Elo plus the
+            back-to-back adjustment, but not the player-availability term the NBA tab applies live —
+            that needs box scores this page doesn't ship. Availability was measured at about
+            +0.6 points of accuracy, so the live model should run slightly ahead of the record here,
+            not behind it.
           </div>
         </div>`;
     }
@@ -466,7 +544,7 @@
 
     let filter = 'all';
     function visible() {
-      if (filter === 'EPL' || filter === 'NFL') return all.filter(r => r.lg === filter);
+      if (filter === 'EPL' || filter === 'NFL' || filter === 'NBA') return all.filter(r => r.lg === filter);
       if (filter === 'miss') return all.filter(r => !r.hit);
       if (filter === 'upset') return all.filter(r => !r.hit && r.pOfActual < 0.35);
       return all;
@@ -515,8 +593,8 @@
     async function mergeJustFinished() {
       let added = 0;
 
-      const evs = await Promise.all([Live.fetch('epl'), Live.fetch('nfl')]);
-      const [eplEvs, nflEvs] = evs;
+      const evs = await Promise.all([Live.fetch('epl'), Live.fetch('nfl'), Live.fetch('nba')]);
+      const [eplEvs, nflEvs, nbaEvs] = evs;
 
       if (eplModel) {
         for (const e of eplEvs) {
@@ -556,6 +634,35 @@
             score: `${e.hs}–${e.as}`, hit: homePick === homeWon, fresh: true
           });
           nflSeen.add(key); added++;
+        }
+      }
+
+      if (nbaRatings) {
+        for (const e of nbaEvs) {
+          if (e.state !== 'post' || e.hs == null || e.as == null) continue;
+          if (e.hs === e.as) continue;                       // basketball has no draws
+          const key = `${e.date}|${e.home}|${e.away}`;
+          if (nbaSeen.has(key)) continue;
+          const Rh = nbaRatings[e.home] ?? DEF, Ra = nbaRatings[e.away] ?? DEF;
+          const day = dayNum(e.date);
+          const b2bH = nbaLastPlayed[e.home] != null && day - nbaLastPlayed[e.home] === 1;
+          const b2bA = nbaLastPlayed[e.away] != null && day - nbaLastPlayed[e.away] === 1;
+          let z = Math.log(10) * (Rh - Ra + NBA_HOME) / 400;
+          z += NBA_B2B * ((b2bA ? 1 : 0) - (b2bH ? 1 : 0));
+          const pHome = 1 / (1 + Math.exp(-z));
+          const homePick = pHome >= 0.5, homeWon = e.hs > e.as;
+          all.push({
+            lg: 'NBA', date: e.date, home: e.home, away: e.away,
+            pick: homePick ? 'HOME' : 'AWAY',
+            pickName: homePick ? e.home : e.away,
+            pickP: Math.max(pHome, 1 - pHome),
+            pOfActual: homeWon ? pHome : 1 - pHome,
+            score: `${e.hs}–${e.as}`, hit: homePick === homeWon, fresh: true
+          });
+          nbaSeen.add(key);
+          // keep the rest clock current so the next merge sees back-to-backs
+          nbaLastPlayed[e.home] = day; nbaLastPlayed[e.away] = day;
+          added++;
         }
       }
 
