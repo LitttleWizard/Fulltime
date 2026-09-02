@@ -171,7 +171,31 @@
     return out;
   }
 
+  /**
+   * P(home wins) implied by the margin distribution, rather than by the
+   * logistic on the rating gap.
+   *
+   * These are two estimators of the same quantity and they disagree by a point
+   * or so. For the NBA the margin view is measurably better on held-out games
+   * (0.6083 -> 0.6075 log-loss, 66.7% -> 67.1%, bootstrap CI excluding zero),
+   * so that tab uses this as its base. For the NFL the difference is inside
+   * the noise, so that tab keeps the logistic. See
+   * scripts/margin_vs_logistic.py — the disagreement was worth testing rather
+   * than papering over.
+   */
+  function winProbFromMargin(league, spread) {
+    const d = DIST && DIST[league];
+    if (!d || !d.marginResid || !d.marginResid.length) return null;
+    const a = d.marginResid;                 // sorted ascending
+    // count residuals > -spread, i.e. outcomes where spread + resid > 0
+    let lo = 0, hi = a.length;
+    const target = -spread;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (a[mid] <= target) lo = mid + 1; else hi = mid; }
+    const p = 1 - lo / a.length;
+    return Math.min(Math.max(p, 0.005), 0.995);
+  }
+
   function generated() { return DIST && DIST.generated; }
 
-  global.MatchSim = { ready, elo, football, generated };
+  global.MatchSim = { ready, elo, football, generated, winProbFromMargin };
 })(window);

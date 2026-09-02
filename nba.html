@@ -341,8 +341,29 @@
     function predict(elo, home, away, b2b, game) {
       const Rh = elo.ratings[home] ?? DEFAULT_RATING;
       const Ra = elo.ratings[away] ?? DEFAULT_RATING;
-      const dr = Rh - Ra + (game && game.neutral ? 0 : HOME_ADV);
-      let z = Elo.logOdds(Rh, Ra, game && game.neutral ? 0 : HOME_ADV);
+      const adv = game && game.neutral ? 0 : HOME_ADV;
+      const dr = Rh - Ra + adv;
+
+      /* Base win probability.
+       *
+       * Two estimators exist from the same ratings: the logistic on the rating
+       * gap, and the share of historical margin errors that would still leave
+       * this side ahead. They disagree by about a point. Rather than assume the
+       * logistic was right — which is what this page did until the simulation
+       * made the disagreement visible — scripts/margin_vs_logistic.py measured
+       * both on held-out games. The margin view wins: 0.6083 -> 0.6075 log-loss
+       * and 66.7% -> 67.1% with the back-to-back term still on top, bootstrap
+       * CI [+0.00008, +0.00152], so the difference is not noise.
+       *
+       * Falls back to the logistic until the distribution has loaded, and on
+       * the NFL tab, where the same test found no distinguishable difference.
+       */
+      const pBase = (typeof MatchSim !== 'undefined')
+        ? MatchSim.winProbFromMargin('nba', dr / ELO_PER_POINT)
+        : null;
+      let z = pBase != null
+        ? Math.log(pBase / (1 - pBase))
+        : Elo.logOdds(Rh, Ra, adv);
 
       // A tired away side helps the home team and vice versa.
       const net = ((b2b && b2b.away) ? 1 : 0) - ((b2b && b2b.home) ? 1 : 0);
@@ -789,7 +810,9 @@
         league: 'nba',
         spread: p.spread,                 // positive favours home
         total: sh.pf + sa.pf,
-        targetWinProb: p.homeWin,         // keep the two views consistent
+        // No shift needed: the headline now uses the same margin distribution,
+        // so the two agree by construction rather than by correction.
+        targetWinProb: p.homeWin,
         runs: SIM_RUNS
       });
       if (!r) { sec.style.display = 'none'; return; }
@@ -825,7 +848,7 @@
 
       document.getElementById('sim-stats').innerHTML =
         row('Simulated win — ' + esc(home), pc(r.homeWin), true) +
-        row('Model win (closed form)', pc(p.homeWin)) +
+        row('Headline probability', pc(p.homeWin)) +
         row('Median margin', `${esc(favName)} by ${Math.abs(r.marginMedian)}`) +
         row('Middle 80% of margins',
             `${esc(away)} +${Math.abs(Math.min(r.margin10, 0))} … ${esc(home)} +${Math.max(r.margin90, 0)}`) +
@@ -953,6 +976,17 @@
       those players suit up, so counting them would badly overstate absences. They are shown in the
       rotation panel but excluded from the maths, which makes the adjustment conservative: an
       unlisted late scratch simply leaves the number where Elo had it.
+      <br><br>
+      <b>Which win probability?</b> There are two ways to turn the same ratings into a
+      probability: the logistic on the rating gap, or the share of historical margin errors that
+      would still leave a side ahead. They disagree by roughly a point, and this page used to
+      assume the logistic was right — until the simulation below made the disagreement visible.
+      <code>margin_vs_logistic.py</code> measured both on held-out games with the back-to-back
+      term still applied: the margin view wins, <b>0.6083 → 0.6075</b> log-loss and
+      <b>66.7% → 67.1%</b>, with a bootstrap interval that excludes zero. So this tab now uses it.
+      The same test on the NFL tab found no distinguishable difference, so that one keeps the
+      logistic — the answer was league-specific, which is exactly why it was worth measuring
+      rather than assuming.
       <br><br>
       <b>How accurate is it?</b> K=${K}, home advantage and offseason regression were grid-searched
       on seasons through 2024, then scored on <b>2,777 games</b> from 2025 onward that the tuning

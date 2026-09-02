@@ -111,6 +111,27 @@ silently keep their built-in defaults.
 Run it once or twice a season. `build_nba_players.py` should be re-run on a
 similar cadence, or the scoring averages go stale.
 
+## Two win probabilities, and which one to use
+
+The same Elo ratings yield a probability two ways: the logistic on the rating
+gap, or the share of historical margin errors that would still leave a side
+ahead. They disagree by about a point. This was invisible until the match
+simulation put both on screen.
+
+`scripts/margin_vs_logistic.py` settles it per league on held-out games, with a
+paired bootstrap:
+
+- **NBA** — the margin view wins, and survives with the back-to-back term on
+  top: 0.6083 → 0.6075 log-loss, 66.7% → 67.1%, CI [+0.00008, +0.00152].
+  `nba.html` uses it.
+- **NFL** — no distinguishable difference (CI spans zero). `nfl.html` keeps the
+  logistic, and its simulation panel is shifted onto that base so the two views
+  agree on screen.
+
+The answer being league-specific is the reason to run the script rather than
+pick one. Re-run it if the constants or `eloPerPoint` change, since the margin
+view depends on that conversion.
+
 ## Measuring accuracy
 
 Report **held-out** numbers, never the tuning-era ones — they differ materially. Current
