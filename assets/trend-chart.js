@@ -196,17 +196,17 @@
     const lastH = th[th.length - 1], lastA = ta[ta.length - 1];
     const ends = [];
     if (lastH) ends.push(
-      `<circle class="trend-end-dot" r="4.5" cx="${x(maxLen - 1).toFixed(1)}" cy="${y(lastH.rating).toFixed(1)}" fill="var(--series-home)"/>` +
+      `<circle class="trend-end-dot home" r="4.5" cx="${x(maxLen - 1).toFixed(1)}" cy="${y(lastH.rating).toFixed(1)}" fill="var(--series-home)"/>` +
       `<text class="trend-end-label" x="${(x(maxLen - 1) + 8).toFixed(1)}" y="${(y(lastH.rating) + 3).toFixed(1)}" fill="var(--series-home)">${Math.round(lastH.rating)}</text>`);
     if (lastA) ends.push(
-      `<circle class="trend-end-dot" r="4.5" cx="${x(maxLen - 1).toFixed(1)}" cy="${y(lastA.rating).toFixed(1)}" fill="var(--series-away)"/>` +
+      `<circle class="trend-end-dot away" r="4.5" cx="${x(maxLen - 1).toFixed(1)}" cy="${y(lastA.rating).toFixed(1)}" fill="var(--series-away)"/>` +
       `<text class="trend-end-label" x="${(x(maxLen - 1) + 8).toFixed(1)}" y="${(y(lastA.rating) + 3).toFixed(1)}" fill="var(--series-away)">${Math.round(lastA.rating)}</text>`);
 
     box.innerHTML = `
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
         ${grid.join('')}${axis.join('')}${baseEls}${gapEl}
-        ${th.length >= 2 ? `<path class="trend-line" d="${path(th, hOff)}" stroke="var(--series-home)"/>` : ''}
-        ${ta.length >= 2 ? `<path class="trend-line" d="${path(ta, aOff)}" stroke="var(--series-away)"/>` : ''}
+        ${th.length >= 2 ? `<path class="trend-line home" d="${path(th, hOff)}" stroke="var(--series-home)"/>` : ''}
+        ${ta.length >= 2 ? `<path class="trend-line away" d="${path(ta, aOff)}" stroke="var(--series-away)"/>` : ''}
         ${markers.join('')}${ends.join('')}
         <line class="trend-crosshair" x1="0" x2="0" y1="${PAD_T}" y2="${PAD_T + plotH}"/>
         <rect class="trend-hit" x="${PAD_L}" y="${PAD_T}" width="${plotW}" height="${plotH}"/>

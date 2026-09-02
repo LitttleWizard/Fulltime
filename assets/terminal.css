@@ -12,9 +12,19 @@
       --win:  #86efac;
       --draw: #9ca3af;
       --loss: #fca5a5;
-      /* validated categorical pair (dark surface) — see dataviz skill checks */
-      --series-home: #3b82f6;   /* vivid blue */
-      --series-away: #f43f5e;   /* rose */
+      /* Validated categorical pair, checked against BOTH surfaces rather than
+         only this one: CVD ΔE 32.4, contrast ≥3:1, inside the lightness band
+         on #0a0c0f and on white. Deliberately avoids green and red, which are
+         spoken for by --brand/--win/--up and --loss/--down/--live — a series
+         in a status hue reads as a status. */
+      --series-home: #2563eb;   /* blue */
+      --series-away: #ea580c;   /* orange */
+      /* Glow colours are held separately: a box-shadow cannot take an alpha of
+         a var() without color-mix, and these need a lower alpha on light where
+         a halo turns to mud against white. */
+      --glow-home: rgba(37,99,235,0.55);
+      --glow-away: rgba(234,88,12,0.55);
+      --glow-brand: rgba(40,204,149,0.45);
       --grid-line: rgba(255,255,255,0.06);
       /* brand accent — WCAG contrast 9.4:1 on --bg */
       --brand: #28cc95;
@@ -45,8 +55,13 @@
       --win:  #15803d;
       --draw: #64748b;
       --loss: #b91c1c;
+      /* same pair as dark: it clears the light checks too, so the two themes
+         agree on team identity instead of quietly recolouring it */
       --series-home: #2563eb;
-      --series-away: #e11d48;
+      --series-away: #ea580c;
+      --glow-home: rgba(37,99,235,0.22);
+      --glow-away: rgba(234,88,12,0.22);
+      --glow-brand: rgba(8,122,84,0.20);
       --grid-line: #eef2f7;
       --brand: #087a54;
       --brand-dim: rgba(8,122,84,0.09);
@@ -81,8 +96,8 @@
     :root[data-theme="light"] .pill.W { background: rgba(21,128,61,0.13); }
     :root[data-theme="light"] .pill.D { background: rgba(100,116,139,0.15); }
     :root[data-theme="light"] .pill.L { background: rgba(185,28,28,0.12); }
-    :root[data-theme="light"] .wl-row.is-home { background: rgba(37,99,235,0.09); }
-    :root[data-theme="light"] .wl-row.is-away { background: rgba(225,29,72,0.08); }
+    :root[data-theme="light"] .wl-row.is-home { background: rgba(37,99,235,0.10); }
+    :root[data-theme="light"] .wl-row.is-away { background: rgba(234,88,12,0.10); }
     :root[data-theme="light"] .tag-chip { background: var(--surface); }
     :root[data-theme="light"] .tag-chip.live { background: rgba(190,24,93,0.08); border-color: rgba(190,24,93,0.32); }
     :root[data-theme="light"] .error-box { background: rgba(185,28,28,0.06); }
@@ -323,8 +338,8 @@
     }
     .wl-row:hover { background: var(--surface2); }
     .wl-row:focus-visible { outline: none; background: var(--surface2); }
-    .wl-row.is-home { background: rgba(59,130,246,0.13); border-left-color: var(--series-home); }
-    .wl-row.is-away { background: rgba(244,63,94,0.12); border-left-color: var(--series-away); }
+    .wl-row.is-home { background: rgba(37,99,235,0.15); border-left-color: var(--series-home); }
+    .wl-row.is-away { background: rgba(234,88,12,0.13); border-left-color: var(--series-away); }
     .wl-name { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
     .wl-name .n { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .wl-meta { display: flex; align-items: center; gap: 7px; }
@@ -1228,3 +1243,40 @@
 .ts-inj.dtd { color: var(--muted); border-color: var(--border-strong); }
 .ts-row.ts-out .ts-name, .ts-row.ts-out .ts-ovr { opacity: 0.55; text-decoration: line-through; }
 .ts-row.ts-out .ts-inj { text-decoration: none; }
+
+/* ── Glow ───────────────────────────────────────────────────────────────
+   A halo in each series' own colour, on the marks that carry identity: the
+   two trend lines, their end dots, and the filled bars. Deliberately not on
+   text — a glow behind a numeral costs legibility for no information gain.
+
+   Alphas come from --glow-* rather than the series token, because a
+   box-shadow can't take an alpha of a var() without color-mix, and the light
+   theme needs a much weaker halo or it reads as smudge on white. */
+
+.trend-line.home { filter: drop-shadow(0 0 5px var(--glow-home)); }
+.trend-line.away { filter: drop-shadow(0 0 5px var(--glow-away)); }
+.trend-end-dot.home { filter: drop-shadow(0 0 5px var(--glow-home)); }
+.trend-end-dot.away { filter: drop-shadow(0 0 5px var(--glow-away)); }
+
+.prob-fill.home,
+.metric-bar-fill.home,
+.sl-fill.home,
+.week-seg.home { box-shadow: 0 0 9px var(--glow-home); }
+
+.prob-fill.away,
+.metric-bar-fill.away,
+.sl-fill.away,
+.week-seg.away { box-shadow: 0 0 9px var(--glow-away); }
+
+.prob-fill.draw { box-shadow: 0 0 7px rgba(156,163,175,0.30); }
+
+/* the live pill already pulses; give it a matching halo */
+.live-pill { box-shadow: 0 0 10px rgba(240,80,110,0.35); }
+
+/* Respect a reduced-motion / reduced-transparency preference: glows are
+   decoration, so drop them rather than compete with the user's setting. */
+@media (prefers-reduced-transparency: reduce) {
+  .trend-line.home, .trend-line.away,
+  .trend-end-dot.home, .trend-end-dot.away { filter: none; }
+  .prob-fill, .metric-bar-fill, .sl-fill, .week-seg, .live-pill { box-shadow: none; }
+}
