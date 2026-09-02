@@ -1,5 +1,8 @@
 .DS_Store
+.deployrc
 .vercel
-nba-box.json
-node_modules
 node_modules/
+
+# Intermediate analysis data: 1.4 MB, ~2,800 ESPN requests, rebuildable with
+# fetch_nba_box.py. Only nba_players.py needs it.
+nba-box.json
