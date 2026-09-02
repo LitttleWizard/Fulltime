@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="assets/terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
   <script src="assets/elo.js"></script>
+  <script src="assets/match-sim.js"></script>
   <script src="assets/terminal-ui.js"></script>
   <script src="assets/live.js"></script>
   <script src="assets/trend-chart.js"></script>
@@ -155,6 +156,27 @@
             <div class="duo" id="moves"></div>
           </div>
 
+          <!-- Distribution behind the single number. Elo gives a win
+               probability and nothing else; this is where the score lives. -->
+          <div class="center-section" id="sim-section" style="display:none;">
+            <div class="sheet-head">
+              <div class="card-title">Simulated Outcomes</div>
+              <div class="sheet-note" id="sim-note"></div>
+            </div>
+            <div class="sim-grid">
+              <div>
+                <div class="sim-sub">Winning margin</div>
+                <div class="sim-hist" id="sim-hist"></div>
+                <div class="sim-axis" id="sim-axis"></div>
+              </div>
+              <div>
+                <div class="sim-sub">Outcome likelihoods</div>
+                <div id="sim-stats"></div>
+              </div>
+            </div>
+            <div class="sheet-foot" id="sim-foot"></div>
+          </div>
+
           <div class="center-section">
             <div class="card-title">How This Works</div>
             <div class="methodology" id="methodology"></div>
@@ -193,6 +215,10 @@
     // Defaults, overridden by data/model-config.json when scripts/retune.py has
     // fitted something better. Re-tuning therefore needs no code change — and
     // retune.py only writes constants that beat these on a held-out slice.
+    // terminal-ui.js provides the escaper; alias it for readability. This page
+    // previously had none at all, which is why team names went into innerHTML raw.
+    const esc = UI.esc;
+
     let K = 20, HOME_ADV = 48, REGRESS = 0.6;
     const DEFAULT_RATING = 1500;
 
@@ -726,7 +752,91 @@
       renderWatchlist();
       renderMoves(home, away);
       renderTrendChart(elo, home, away);
+      renderSim(home, away, p);
       if (typeof renderWeekList === 'function') renderWeekList();
+    }
+
+
+    /* ── Simulated outcomes ────────────────────────────────────────────────
+     *
+     * Elo produces a win probability and nothing else — the "projected score"
+     * above is a single point estimate. This is the distribution behind it:
+     * 20,000 games sampled from the model's own error, giving the margin
+     * spread, totals, and how often the game is actually close.
+     *
+     * Margins are sampled from EMPIRICAL residuals, not a normal: NFL margins
+     * cluster on particular numbers because of how scoring works, and a
+     * Gaussian would smear those away.
+     *
+     * The simulated win% is shown as a CHECK on the closed form, not as a
+     * better estimate — it is the same model, so agreement is the point.
+     */
+    const SIM_RUNS = 20000;
+    let simReady = false;
+
+    function renderSim(home, away, p) {
+      const sec = document.getElementById('sim-section');
+      if (!sec || !simReady) return;
+      const sh = UI.recentStats(elo.history, home, 12), sa = UI.recentStats(elo.history, away, 12);
+      if (!sh || !sa) { sec.style.display = 'none'; return; }
+
+      const r = MatchSim.elo({
+        league: 'nfl',
+        spread: p.spread,                 // positive favours home
+        total: sh.pf + sa.pf,
+        targetWinProb: p.homeWin,         // keep the two views consistent
+        runs: SIM_RUNS
+      });
+      if (!r) { sec.style.display = 'none'; return; }
+      sec.style.display = '';
+
+      // margin histogram, home-positive, in buckets
+      const W = 5, LO = -35, HI = 35;
+      const buckets = [];
+      for (let b = LO; b <= HI; b += W) {
+        let c = 0;
+        for (const k in r.marginBins) {
+          const m = +k;
+          if (m >= b && m < b + W) c += r.marginBins[k];
+        }
+        buckets.push({ lo: b, p: c / r.runs });
+      }
+      const peak = Math.max(...buckets.map(b => b.p), 0.001);
+      document.getElementById('sim-hist').innerHTML = buckets.map(b => {
+        const cls = b.lo >= 0 ? 'home' : 'away';
+        const title = `${b.lo >= 0 ? esc(home) : esc(away)} by ${Math.abs(b.lo + (b.lo >= 0 ? 0 : W))}` +
+                      `–${Math.abs(b.lo + (b.lo >= 0 ? W : 0))} · ${(b.p * 100).toFixed(1)}%`;
+        return `<span class="sim-bar ${cls}" style="height:${(b.p / peak * 100).toFixed(1)}%" title="${title}"></span>`;
+      }).join('');
+      document.getElementById('sim-axis').innerHTML =
+        `<span>${esc(away)} +35</span><span>even</span><span>${esc(home)} +35</span>`;
+
+      const row = (k, v, strong) =>
+        `<div class="sim-stat"><span class="k">${k}</span>` +
+        `<span class="v${strong ? ' strong' : ''}">${v}</span></div>`;
+      const pc = x => Math.round(x * 100) + '%';
+      const favName = p.homeWin >= 0.5 ? home : away;
+      const line = Math.abs(p.spread);
+
+      document.getElementById('sim-stats').innerHTML =
+        row('Simulated win — ' + esc(home), pc(r.homeWin), true) +
+        row('Model win (closed form)', pc(p.homeWin)) +
+        row('Median margin', `${esc(favName)} by ${Math.abs(r.marginMedian)}`) +
+        row('Middle 80% of margins',
+            `${esc(away)} +${Math.abs(Math.min(r.margin10, 0))} … ${esc(home)} +${Math.max(r.margin90, 0)}`) +
+        row('Within 3 points', pc(r.within(3)), true) +
+        row(`${esc(favName)} covers ${line.toFixed(1)}`, pc(p.homeWin >= 0.5 ? r.cover(line) : 1 - r.cover(-line))) +
+        row('Median total', String(r.totalMedian)) +
+        row(`Over ${(sh.pf + sa.pf).toFixed(0)}`, pc(r.over(sh.pf + sa.pf)));
+
+      document.getElementById('sim-note').textContent =
+        `${SIM_RUNS.toLocaleString()} simulated games`;
+      document.getElementById('sim-foot').textContent =
+        'Margins are drawn from the model\'s own historical errors rather than a bell curve, ' +
+        'so the lumpiness real scoring produces survives. The simulated win probability is a ' +
+        'check on the closed form, not a second opinion — it is the same model, so the two ' +
+        'agreeing is the point. Everything else here is information the win probability alone ' +
+        'cannot express.';
     }
 
     // Live scores (ESPN). Additive only — silent no-op if the feed is down.
@@ -857,6 +967,8 @@
     render();
     renderWeekList();
     refreshLive();
+    // Simulation data is additive; the page is complete without it.
+    MatchSim.ready().then(d => { if (d) { simReady = true; render(); } });
     setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive(); });
     loadingEl.style.display = 'none';
