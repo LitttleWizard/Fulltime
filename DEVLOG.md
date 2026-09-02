@@ -1,156 +1,167 @@
 # Fulltime — Development Log
 
-Sports match prediction for the Premier League, NFL and NBA. Static site, no
-backend, no API keys; every model is fitted in the browser on page load.
+Sports match prediction for the EPL, NFL and NBA. Static site, no backend, no
+API keys; every model is fitted in the browser on page load.
 
-This log records **why** things are the way they are — particularly the ideas
-that were tested and thrown away, since those are invisible in the code and are
-the expensive lessons. `Changelog.md` in Obsidian records the mechanical diff;
-this is the reasoning.
+This records **why** things are as they are — above all the ideas that were
+tested and thrown out, since those are invisible in the code. `Changelog.md`
+(Obsidian, auto-written on deploy) has the mechanical diff.
 
-**Live:** [fulltime.beer](https://fulltime.beer) · **Repo:** LitttleWizard/Fulltime
-· 41 commits, 30 Aug – 2 Sep 2026
+**Live:** [fulltime.beer](https://fulltime.beer) · 41 commits, 30 Aug – 2 Sep 2026
 
 ---
 
 ## Where it stands
 
-| Tab | Model | Held-out accuracy | Benchmark |
+| Tab | Model | Held out | Benchmark |
 |---|---|---|---|
-| EPL | Dixon-Coles (Poisson goals + low-score correction) | 50.4% | 51.9% betting market |
-| NFL | Elo + margin of victory, QB / rest / divisional | 64.6% | 67.9% betting market |
-| NBA | Elo + margin, back-to-back, player availability | 67.6% | 55.0% always-pick-home |
+| EPL | Dixon-Coles (Poisson goals + low-score correction) | 50.4% · 1.022 | 51.9% market |
+| NFL | Elo + MOV, QB / rest / divisional | 64.6% · 0.6293 | 67.9% market |
+| NBA | Elo + MOV, back-to-back, availability | 67.6% · 0.5995 | 55.0% pick-home |
 
-Every figure is **held out** — scored on seasons the tuning never saw. In-sample
-numbers on a rating model flatter and mislead, so they are not quoted anywhere.
+All figures are **held out** — scored on seasons the tuning never saw. In-sample
+numbers on a rating model flatter and mislead, so they aren't quoted.
 
 ---
 
-## The through-line: measure before building
+## Results
 
-The recurring discipline is that a candidate signal has to earn its place on
-held-out data, and most did not. What was **rejected**:
+### EPL
 
-| Idea | Result | Why it failed |
+| Test | Result | Verdict |
 |---|---|---|
-| EA FC squad ratings (EPL) | +0.0003 log-loss, betas of opposite sign | Dixon-Coles already infers team strength from results; results beat a video-game rating as soon as you have any |
-| NFL weather (temp, wind) | Looked useful in backtest | Recorded *after* a game — every upcoming fixture has the field empty, so it can never inform a prediction |
-| NFL offence/defence split | 0.6347 vs 0.6334 for single-rating Elo | More parameters, less signal |
-| NFL roster moves / trades | No measurable effect | Kept on the page as context, explicitly labelled "not a model input" |
-| NBA rest-day difference | 0.6101 vs 0.6099 — worse than Elo alone | Only the narrower back-to-back flag survived |
-| Sky/fuchsia chart colours | CVD ΔE 1.5 | Indistinguishable to a deuteranope despite looking fine |
+| EA FC squad rating, all 380 matches | 1.0276 → 1.0314, betas −0.30 / +0.36 | **Rejected** — worse, betas disagree |
+| Squad rating, promoted sides (n=108) | 1.0061 → 1.0015, betas +0.59 / +0.81 | Directional, too thin to ship |
+| Real lineups, XI quality gap (n=340) | 1.0350 → 1.0450, betas −0.51 / +0.57 | **Rejected** |
+| Real lineups, XI vs own recent norm | 1.0350 → 1.0347, betas +0.61 / +1.50 | Real but negligible |
+| — across four encodings | +0.0003 / −0.0012 / +0.0002 / +0.0002 | Softmax betas steadiest (+0.53/+0.54) |
+| ESPN → EA FC name matching | 97.3% of 8,360 starters | Misses are post-snapshot signings |
+| In-play calibration | 0–10% band lands 7.0%; 80–90% lands 70.3% | **Overconfident** — said so on the page |
 
-What **worked**:
+Dixon-Coles already infers team strength from results, so a video-game rating
+adds nothing. Only the *disruption* variant — is today's XI weaker than this
+club's normal XI — carries new information, and even that is worth ~nothing in
+football. Shipped as display, not as a model input.
 
-| Idea | Gain | Note |
+### NFL
+
+| Test | Result | Verdict |
 |---|---|---|
-| NBA player availability | 0.6068 → 0.5995, 67.0% → 67.6% | 24× the EPL squad effect — one starter is a fifth of the floor |
-| NBA back-to-backs | 0.6099 → 0.6078 | β=0.28, both folds agreeing |
-| NFL QB / rest / divisional | 0.6334 → 0.6293 | Fitted jointly, not one at a time |
-| Dixon-Coles over Elo (EPL) | Scoreline distribution | Elo can't produce one |
-| Margin-based win probability (NBA) | 0.6083 → 0.6075, 66.7% → 67.1% | Bootstrap CI excludes zero |
+| Elo + MOV (854 games, 2023+) | 64.3% · 0.6334 | Baseline |
+| QB change alone | 0.6304 | Helps |
+| QB + rest + divisional, fitted jointly | 0.6293 · 64.6% | **Shipped** |
+| Temperature / wind | — | **Rejected**: recorded post-game, so never available pre-kickoff |
+| Roof / indoor | ≈0 alongside other signals | **Rejected** |
+| Offence/defence split | 0.6347 vs 0.6334 | **Rejected** — more parameters, less signal |
+| Roster moves / trades | No measurable effect | Kept as labelled context only |
+| Elo per point of spread | 22.8 measured, not the conventional 25 | Corrected |
+| Residual SD of margin | 13.5 pts over 6,758 games | Shown as ± on the spread |
+| Margin vs logistic win prob | +0.00039, CI spans zero | **No difference** — kept logistic |
+
+### NBA
+
+| Test | Result | Verdict |
+|---|---|---|
+| Grid search | K=16, home +45, regress 0.50 | Shipped |
+| Elo holdout (2,777 games, 2025+) | 66.5% · 0.6099 | Baseline (pick-home 55.0%) |
+| Without margin multiplier | 66.1% · 0.6171 | MOV worth ~0.4pt |
+| Back-to-back (β 0.28) | 0.6099 → 0.6078 · 67.0% | **Shipped** |
+| Rest-day difference | 0.6101 — worse than Elo alone | **Rejected** |
+| Player availability (β 1.75) | 0.6068 → 0.5995 · 67.0% → 67.6%, betas +1.70 / +1.80 | **Shipped** — largest signal here |
+| Margin vs logistic, b2b applied | 0.6083 → 0.6075 · 66.7% → 67.1%, CI [+0.00008, +0.00152] | **Adopted** |
+| Elo per point / residual SD | 20.1 · 14.2 pts over 8,150 games | Shown as ± |
+| Calibration | 65% calls land 65.5%; 75% land 77.0% | Well calibrated |
+
+Availability is worth **24× the equivalent EPL squad effect**. Partly structural
+— one basketball starter is a fifth of the floor — but the deciding factor is
+*data timing*: NBA injury reports publish days ahead, football lineups an hour
+before kickoff. One can inform a prediction; the other only explains afterwards.
+
+### Cross-cutting
+
+| Check | Result |
+|---|---|
+| JS ↔ Python parity (`test_parity.py`) | 30 teams agree to 0.000000 |
+| Browser log replay vs Python holdout | 67.0% · 0.608 — reproduces `nba_features.py` exactly |
+| Re-tune (`retune.py`), NBA / NFL | Incumbent wins both → **KEEP**, nothing changed |
+| Chart colours: blue + orange | CVD ΔE 31.3, contrast ≥3:1 both themes → pass |
+| Chart colours: sky + fuchsia | CVD ΔE 1.5 → **rejected**, invisible to a deuteranope |
+
+Re-tune reporting KEEP is the guard working: a grid search always finds
+something that looks better in-sample, and requiring a holdout win is what stops
+the model overfitting itself slightly worse each season.
+
+---
+
+## Method notes
+
+- **Cross-fitting** is used where a single season is too short to hold out an
+  era: fit the beta on one half, score the other, swap. **Agreement between the
+  two betas is the signal** — opposite signs mean noise, which is exactly what
+  separated EA FC squad ratings (−0.30 / +0.36) from availability (+1.70 / +1.80).
+- **Paired bootstrap** (4,000 resamples) settles small differences. It gave
+  opposite answers for NBA and NFL on the same question.
+- **Leakage discipline**: the EA FC snapshot is dated 2025-09-19 so only later
+  matches are scored against it; the residual pool scoring a game holds only
+  games played before it.
+
+---
+
+## What testing caught
+
+1. **ESPN's NBA feed is not only NBA.** Preseason exhibitions against Real
+   Madrid, Flamengo and Australian NBL clubs, plus All-Star squads — 22 phantom
+   teams whose results were moving real franchises' Elo. Filtering them moved
+   the fitted offseason regression 0.35 → 0.50, so everything was refit.
+2. **openfootball renamed every club in 2020-21.** 13 clubs existed as both
+   "Manchester City" and "Manchester City FC", resetting ratings mid-history.
+   Fixing it improved 2020-21 log-loss 1.0424 → 1.0223.
+3. **A silent NaN in the Elo refactor.** NBA stores scores as `hs`/`as`; the
+   extracted `Elo.run` expects `hg`/`ag`. Caught only because every rating and
+   prediction was snapshotted before the refactor and diffed after.
+4. **An assumption shipped without test.** The match simulation disagreed with
+   the headline; I suppressed the disagreement instead of measuring it. When
+   measured, the margin view was significantly better for NBA — and no better
+   for NFL.
+5. **An accuracy figure from the wrong era.** An early version reported 53.6%
+   for EPL, which was tuning-era. The honest held-out figure is 50.4%.
+
+---
+
+## Known decay
+
+- **`data/epl-players.json`** — EA FC snapshot dated 2025-09-19, no upstream
+  history. Three current clubs appear only in its Championship slice.
+- **`build_nba_players.py`** — re-run every month or two or scoring averages drift.
+- **`scripts/retune.py`** — once or twice a season.
+- **In-play model is EPL-only** and measurably overconfident. NBA/NFL would need
+  possession-level play-by-play the site doesn't ship.
+- **`nba-box.json` is gitignored** — 1.4 MB, ~2,800 requests to rebuild;
+  `nba_players.py` can't run without it.
 
 ---
 
 ## Timeline
 
-### 30 Aug — the EPL predictor, spun out
-Started as a match-outcome model on the personal site, then separated into its
-own repo and Vercel project. Elo first, then **switched to Dixon-Coles**: Poisson
-goals with the low-score correction, weighted MLE with a 200-day half-life,
-fitted in-browser by hand-rolled gradient ascent (no numpy in a browser). Elo
-stayed for the watchlist and trend chart, where a single number is what's wanted.
+**30 Aug** — EPL predictor spun out of the personal site. Elo first, then
+switched to Dixon-Coles for the scoreline distribution Elo can't produce. NFL
+tab same day.
 
-NFL added the same day — Elo with a margin-of-victory multiplier, using
-FiveThirtyEight's autocorrelation correction so strong teams can't inflate their
-rating by beating weak ones badly.
+**31 Aug** — the heavy testing day: QB/rest/divisional fitted, weather and the
+offence/defence split rejected. Prediction log added (walk-forward replay of
+every call). ESPN live scores and EPL in-play probability. EA FC ratings tested
+twice and both times came back ~zero.
 
-### 31 Aug — the day most of the testing happened
-The QB adjustment was **fitted from data rather than assumed**, and weather was
-rejected on the timing argument above. The offence/defence split was built,
-measured, and deleted.
+**1 Sep** — NBA tab. hoopR stops at 2023 and FiveThirtyEight pulled their
+`nba_elo` files, leaving ESPN as the only current CORS-open source — hence
+baking `nba-games.json` offline.
 
-The **prediction log** went in — every call replayed walk-forward against what
-actually happened. This is the tab that keeps the rest honest.
-
-**Live scores** from ESPN, and in-play win probability for the EPL. That one was
-almost free: Dixon-Coles already yields expected goals, so remaining goals over
-remaining time are Poisson at a pro-rated rate. NFL and NBA have no equivalent —
-points arrive in 7s and 3s and possession dominates late.
-
-Measuring in-play calibration showed the model **overconfident**: the 0–10% band
-lands 7.0%, the 80–90% band 70.3%. Surfaced on the page rather than buried.
-
-EA FC player ratings were tested twice — squad-level, then with real lineups —
-and both times came back near zero. The lineup work stayed anyway, because
-seeing who is missing is useful to a reader even when it doesn't move the number.
-
-### 1 Sep — NBA, and mobile
-The **NBA tab**. Sourcing was the hard part: hoopR's schedules stop at 2023 and
-FiveThirtyEight pulled their `nba_elo` files, leaving ESPN as the only current
-CORS-open source. It answers one date range per request, so five seasons is ~90
-of them — hence baking `nba-games.json` offline.
-
-That feed is not only NBA. It carries preseason exhibitions against Real Madrid,
-Flamengo and Australian NBL clubs, plus All-Star squads — 22 phantom teams, and
-those results were **moving real franchises' Elo**. Filtering to the 30 franchises
-changed the fitted offseason regression from 0.35 to 0.50, so everything was
-refit rather than left quoting numbers from dirty data.
-
-### 2 Sep — availability, publishing, and the estimator question
-**Player availability** turned out to be the largest signal on the site. The
-reason it works here and failed on the EPL tab isn't the sport — it's data
-timing. NBA injury reports publish days ahead; football lineups land an hour
-before kickoff. One can inform a prediction, the other can only explain
-afterwards.
-
-Deliberately conservative: only players listed **Out** count. 67 of 76 current
-listings are Day-To-Day and most of those play.
-
-Then a cleanup pass — `elo.js` and `terminal-ui.js` extracted (Elo had been
-implemented three times), a **parity test** asserting the browser and the Python
-analysis produce identical ratings, and the repo reorganised into
-`assets/ data/ scripts/ test/`.
-
-Two things worth recording from that refactor. Snapshotting every rating and
-prediction *before* touching anything caught a real break mid-way — NBA stores
-scores as `hs`/`as` while `Elo.run` expects `hg`/`ag`, producing NaN ratings. And
-`formPills` / `renderWatchlist` / `h2hSummary` *look* duplicated but genuinely
-differ per league, so they were deliberately left alone. A real difference is
-not duplication.
-
-**Simulation.** Season projection first — Monte Carlo over remaining fixtures for
-title, top-four and relegation odds. Then match simulation, which I initially
-argued against on the grounds that sampling from a closed form just reproduces
-it. That was half right: it's true of the win probability, and wrong about
-everything else. The Elo tabs had no score distribution at all.
-
-That panel then earned its keep immediately by exposing a **disagreement**: the
-margin view said 59.4% where the headline said 61%. I first resolved it by
-shifting the simulation onto the headline — assuming the logistic was the
-validated one. Challenged on that, I measured properly, and the assumption was
-wrong: for the NBA the margin view is significantly better (CI [+0.00008,
-+0.00152]). For the NFL there's no distinguishable difference. The answer was
-league-specific, which is exactly why it needed measuring.
+**2 Sep** — availability shipped; published to GitHub; `elo.js` and
+`terminal-ui.js` extracted (Elo had been written three times); parity test added;
+repo reorganised; UI density pass; re-tune loop; season and match simulation;
+and the margin-vs-logistic correction.
 
 ---
 
-## Things that will need attention
-
-- **`data/epl-players.json` goes stale.** The EA FC snapshot is dated
-  2025-09-19 and upstream publishes no history. Three current clubs appear only
-  in its Championship slice.
-- **`build_nba_players.py` needs re-running** every month or two or the scoring
-  averages drift out of date.
-- **`scripts/retune.py`** should run once or twice a season. It only adopts
-  constants that beat the incumbent on held-out seasons — reporting KEEP and
-  changing nothing is the normal, correct outcome.
-- **The in-play model is EPL-only** and measurably overconfident. A possession-
-  level model for NBA/NFL needs play-by-play data the site doesn't ship.
-- **NBA `nba-box.json` is gitignored** — 1.4 MB and ~2,800 requests to rebuild.
-  `nba_players.py` can't run without regenerating it first.
-
----
-
-*Maintained alongside `Changelog.md` (auto-written on deploy) and the Obsidian
-devlog at `~/Content/00_Web_Network_Hub/Site_04_Fulltime/`.*
+*Kept alongside `Changelog.md` and the Obsidian devlog at
+`~/Content/00_Web_Network_Hub/Site_04_Fulltime/`.*
