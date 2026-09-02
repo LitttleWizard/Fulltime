@@ -54,6 +54,10 @@ football. Shipped as display, not as a model input.
 | Roof / indoor | ≈0 alongside other signals | **Rejected** |
 | Offence/defence split | 0.6347 vs 0.6334 | **Rejected** — more parameters, less signal |
 | Roster moves / trades | No measurable effect | Kept as labelled context only |
+| Roster continuity, weeks 1–6 | +0.0076, 9/12 seasons, betas +2.34…+2.98 | **Shipped, scoped** — CI [−0.0005, +0.0152] spans zero |
+| — placebo, weeks 7+ | −0.0005 | Effect vanishes, as chemistry should |
+| — star-weighted variants | top-22 +0.0037 · top-11 +0.0034 · squared +0.0071 | **Rejected** — depth, not key players |
+| — continuity as regression rate | best k=0 (i.e. no gain) | **Rejected** |
 | Elo per point of spread | 22.8 measured, not the conventional 25 | Corrected |
 | Residual SD of margin | 13.5 pts over 6,758 games | Shown as ± on the spread |
 | Margin vs logistic, single holdout | +0.00039, CI spans zero | Underpowered at n=854 |
@@ -125,7 +129,13 @@ the model overfitting itself slightly worse each season.
    the headline; I suppressed the disagreement instead of measuring it. When
    measured, the margin view was significantly better for NBA — and no better
    for NFL.
-5. **An accuracy figure from the wrong era.** An early version reported 53.6%
+5. **A hypothesis that survived its own placebo.** Roster continuity is the one
+   borderline feature shipped despite an interval spanning zero. What earned it
+   was the placebo: the effect is large in weeks 1–6 and vanishes after, which a
+   team-quality proxy could not do — and continuity correlates +0.45 with
+   rating, so that check was essential. Scoped to the weeks where it was
+   measured; no decay past week 6 was invented.
+6. **An accuracy figure from the wrong era.** An early version reported 53.6%
    for EPL, which was tuning-era. The honest held-out figure is 50.4%.
 
 ---

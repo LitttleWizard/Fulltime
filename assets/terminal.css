@@ -1403,3 +1403,29 @@
 }
 .sim-bar { cursor: default; }
 .sim-bar:hover, .sim-bar:focus-visible { filter: brightness(1.35); outline: none; }
+
+/* ── Roster continuity ──────────────────────────────────────────────────── */
+.cont-row {
+  display: grid; grid-template-columns: 1fr 120px 44px 38px 40px;
+  align-items: center; gap: 10px;
+  padding: 6px 0; font-size: 12px;
+  border-bottom: 1px solid var(--grid-line);
+}
+.cont-row:last-child { border-bottom: 0; }
+.cont-team { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cont-bar {
+  height: 6px; background: var(--surface2); border-radius: 3px;
+  overflow: hidden; border: 1px solid var(--border);
+}
+.cont-bar span { display: block; height: 100%; background: var(--accent); }
+.cont-val, .cont-rank, .cont-delta {
+  text-align: right; font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
+}
+.cont-val { color: var(--text); }
+.cont-rank { color: var(--muted); }
+.cont-delta.pos { color: var(--up); }
+.cont-delta.neg { color: var(--down); }
+@media (max-width: 700px) {
+  .cont-row { grid-template-columns: 1fr 70px 40px 34px 36px; gap: 6px; }
+}

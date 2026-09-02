@@ -151,6 +151,15 @@
             </div>
           </div>
 
+          <div class="center-section" id="cont-section" style="display:none;">
+            <div class="sheet-head">
+              <div class="card-title">Roster Continuity</div>
+              <div class="sheet-note" id="cont-note"></div>
+            </div>
+            <div id="cont-rows"></div>
+            <div class="sheet-foot" id="cont-foot"></div>
+          </div>
+
           <div class="center-section">
             <div class="card-title">Roster Moves <span class="ctx-note">context only — not a model input</span></div>
             <div class="duo" id="moves"></div>
@@ -243,6 +252,10 @@
      * Silently keeps the defaults if the file is absent or unreadable — the
      * page must work without it.
      */
+    // Filled by the fetch below; declared here because that fetch runs before
+    // the block documenting it, and a let in the dead zone would throw into a
+    // catch that silently swallows it.
+    let CONT = null;
     let modelFit = null;
     try {
       const r = await fetch('data/model-config.json', { cache: 'no-store' });
@@ -259,6 +272,11 @@
         }
       }
     } catch (e) { /* defaults stand */ }
+
+    try {
+      const r = await fetch('data/nfl-continuity.json', { cache: 'force-cache' });
+      if (r.ok) CONT = await r.json();
+    } catch (e) { /* continuity is additive; the model works without it */ }
 
     const loadingEl = document.getElementById('loading');
     const loadingStatus = document.getElementById('loading-status');
@@ -456,6 +474,30 @@
     let ELO_PER_POINT = 22.8;     // measured, not the conventional 25
     let baseHomeWin = null;   // league home-win rate, from the loaded history
 
+    /* Roster continuity — the share of last season's snaps still on the roster.
+     *
+     * Elo regresses every team toward the mean by the same 40% each offseason,
+     * so it cannot know one side returned most of its roster while another
+     * rebuilt. Measured by nfl_continuity.py, leave-one-season-out over 12
+     * seasons: +0.00757 log-loss in weeks 1-6, betas +2.34..+2.98, and a clean
+     * placebo — the effect VANISHES after week 6 (-0.00052), which is what
+     * distinguishes chemistry from simply being good. Continuity correlates
+     * +0.447 with rating, so that placebo is what makes the case.
+     *
+     * Applied to weeks 1-6 only, matching where it was measured. Deliberately
+     * NOT extended past that on a smooth decay: the decay shape was never
+     * tested, and inventing one would be exactly the kind of unmeasured guess
+     * this project keeps rejecting.
+     *
+     * Honest caveat, stated on the page too: the 95% interval is
+     * [-0.00053, +0.01515] and spans zero. The effect is large and the placebo
+     * is clean, but it is not established. Importance-weighting was tested and
+     * made it worse (top-22 +0.00371, top-11 +0.00343), so plain snap share is
+     * what ships — continuity is roster depth, not star retention.
+     *
+     * Declared near the top of the script, above the fetch that fills it.
+     */
+
     const QB_BETA = 0.52;     // team starting a backup / new QB
     const REST_BETA = 0.18;   // rest-day advantage, per 7 days
     const DIV_BETA = -0.05;   // divisional games run slightly closer
@@ -470,6 +512,16 @@
       // Backup QB: away disruption helps the home side and vice versa.
       const qbNet = ((qb && qb.away) ? 1 : 0) - ((qb && qb.home) ? 1 : 0);
       if (qbNet !== 0) { adj.qb = QB_BETA * qbNet; z += adj.qb; }
+
+      // Roster continuity, weeks 1-6 only — see the note on CONT above.
+      const wk = game && game.week ? Number(game.week) : null;
+      if (CONT && CONT.teams && wk && wk <= (CONT.earlyWeeks || 6)) {
+        const ch = CONT.teams[home], ca = CONT.teams[away];
+        if (ch != null && ca != null) {
+          adj.continuity = (CONT.beta || 2.6) * (ch - ca);
+          z += adj.continuity;
+        }
+      }
 
       if (game && game.homeRest != null && game.awayRest != null) {
         const rest = UI.clamp(game.homeRest - game.awayRest, -7, 7) / 7;
@@ -753,6 +805,7 @@
       renderMoves(home, away);
       renderTrendChart(elo, home, away);
       renderSim(home, away, p);
+      renderContinuity(home, away, p);
       if (typeof renderWeekList === 'function') renderWeekList();
     }
 
@@ -877,6 +930,45 @@
       host.addEventListener('focusout', hide);
     })();
 
+    /** Continuity panel — shows the input and whether it is currently applied. */
+    function renderContinuity(home, away, p) {
+      const sec = document.getElementById('cont-section');
+      if (!sec) return;
+      if (!CONT || !CONT.teams || CONT.teams[home] == null || CONT.teams[away] == null) {
+        sec.style.display = 'none'; return;
+      }
+      sec.style.display = '';
+      const mean = CONT.mean || 0.5;
+      const rank = Object.entries(CONT.teams).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+      const row = t => {
+        const v = CONT.teams[t], d = v - mean;
+        const pos = rank.indexOf(t) + 1;
+        return `<div class="cont-row">
+          <span class="cont-team">${esc(teamName(t))}</span>
+          <span class="cont-bar"><span style="width:${UI.clamp(v * 100, 0, 100)}%"></span></span>
+          <span class="cont-val">${(v * 100).toFixed(0)}%</span>
+          <span class="cont-rank">#${pos}</span>
+          <span class="cont-delta ${d >= 0 ? 'pos' : 'neg'}">${d >= 0 ? '+' : ''}${(d * 100).toFixed(0)}</span>
+        </div>`;
+      };
+      document.getElementById('cont-rows').innerHTML = row(away) + row(home);
+
+      const applied = p.adj && p.adj.continuity != null;
+      document.getElementById('cont-note').textContent =
+        `${CONT.season} rosters vs ${CONT.season - 1} snaps` +
+        (applied ? ' · applied' : ' · not applied');
+      document.getElementById('cont-foot').innerHTML = applied
+        ? `Applied: this is a week ${'\u2264'} ${CONT.earlyWeeks} game, worth ` +
+          `<b>${p.adj.continuity >= 0 ? '+' : ''}${(p.adj.continuity).toFixed(2)}</b> in log-odds to ` +
+          `${esc(teamName(home))}. Measured at +0.0076 log-loss in weeks 1–6 across 12 seasons, ` +
+          `with the effect vanishing after week 6 — that decay is what separates chemistry from ` +
+          `simply being good. The 95% interval spans zero, so treat it as suggestive rather than ` +
+          `established. Star-weighting was tested and performed worse: this is roster depth, not ` +
+          `key players.`
+        : `Shown for context only. The effect was measured in weeks 1–${CONT.earlyWeeks} and ` +
+          `vanishes afterwards, so it is not applied to this game.`;
+    }
+
     // Live scores (ESPN). Additive only — silent no-op if the feed is down.
     let liveByKey = Object.create(null);
     const liveKey = (h, a) => `${h}|${a}`;
@@ -967,7 +1059,20 @@
       <b>Adjustments on top of the rating.</b> Three further signals are applied in log-odds space,
       fitted jointly on 2001–2022 and scored on the 2023+ holdout (<code>nfl_features.py</code>):
       a <b>quarterback change</b> (β=${QB_BETA}), <b>rest-day advantage</b> (β=${REST_BETA} per
-      7 days) and <b>divisional games</b> running slightly closer (β=${DIV_BETA}). Together they
+      7 days) and <b>divisional games</b> running slightly closer (β=${DIV_BETA}).
+      <br><br>
+      <b>Roster continuity, weeks 1–6.</b> Elo regresses every team toward the mean by the same
+      amount each offseason, so it cannot know one side returned most of its roster while another
+      rebuilt. <code>nfl_continuity.py</code> measures the share of last season's snaps still on
+      the roster: leave-one-season-out over 12 seasons it is worth <b>+0.0076 log-loss in weeks
+      1–6</b>, and the effect <i>vanishes</i> afterwards (−0.0005). That decay is the whole case —
+      continuity correlates +0.45 with rating, so a team-quality proxy would show up all season.
+      <br><br>
+      Two honest qualifications. The 95% interval is <b>[−0.0005, +0.0152]</b> and spans zero, so
+      this is suggestive rather than established — it is applied only to the weeks where it was
+      measured, and no decay past week 6 was invented. And star-weighting was tested and performed
+      <i>worse</i> (top-22 +0.0037, top-11 +0.0034): continuity here is roster depth, not key-player
+      retention. Together they
       move the held-out score from 0.6334 to 0.6293 log-loss and 64.3% to 64.6% — modest, but
       measured rather than assumed, and better than the QB signal alone (0.6304).
       <br><br>
