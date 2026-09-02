@@ -15,7 +15,22 @@ The hypothesis, and why it is worth testing rather than dismissing:
 
 Continuity for team T entering season S:
 
-    share of T's snaps in season S-1 played by players on T's roster in S
+    (snaps retained + 0.5 x snaps imported) / T's total snaps in S-1
+
+    retained  played for T last season and still on the roster
+    imported  played for someone ELSE last season and now on T's roster
+
+Retention alone was the first version and it is measurably worse. Counting
+arrivals matters: a team that lost 40% of its snaps and signed nobody is not in
+the same position as one that lost 40% and imported established starters, yet
+retention-only scores them identically. Arrivals are weighted HALF because an
+imported starter brings ability but not the team-specific familiarity that the
+whole hypothesis is about — and 0.5 measured better than either 0 or 1.0:
+
+    retained only        +0.00748  CI [-0.00019, +0.01550]   9/12 seasons
+    retained + 0.5*imp   +0.01124  CI [+0.00316, +0.01924]  10/12   <- shipped
+    retained + 1.0*imp   +0.00842  CI [+0.00030, +0.01717]   9/12
+    imported only        -0.00101  nothing
 
 Two forms are tested, because they imply different fixes:
 
@@ -117,16 +132,32 @@ def build_continuity(y0, y1):
             if pid:
                 on_roster[(r['team'], y)].add(pid)
 
-    cont = {}
+    # per season: player -> (team they played for, snaps)
+    where = defaultdict(dict)
     for (team, y), players in by.items():
-        if y + 1 > y1 or (team, y + 1) not in on_roster:
+        for pid, v in players.items():
+            prev = where[y].get(pid)
+            if prev is None or v > prev[1]:
+                where[y][pid] = (team, v)
+    totals = {(team, y): sum(p.values()) for (team, y), p in by.items()}
+
+    IMPORT_W = 0.5           # arrivals bring ability, not familiarity
+    cont = {}
+    for (team, y1) in on_roster:
+        y0 = y1 - 1
+        tot = totals.get((team, y0), 0.0)
+        if tot <= 0 or y0 not in where:
             continue
-        keep = on_roster[(team, y + 1)]
-        total = sum(players.values())
-        if total <= 0:
-            continue
-        returning = sum(v for pid, v in players.items() if pid in keep)
-        cont[(team, y + 1)] = returning / total
+        keep = on_roster[(team, y1)]
+        retained = imported = 0.0
+        for pid, (t, snaps_) in where[y0].items():
+            if pid not in keep:
+                continue
+            if t == team:
+                retained += snaps_
+            else:
+                imported += snaps_
+        cont[(team, y1)] = (retained + IMPORT_W * imported) / tot
     return cont
 
 
@@ -228,11 +259,46 @@ def write_current(y0, y1):
     mean = sum(cur.values()) / len(cur)
     import time
     doc = {'generated': time.strftime('%Y-%m-%d'), 'season': latest,
-           'mean': round(mean, 4), 'beta': 2.6, 'earlyWeeks': 6,
+           'mean': round(mean, 4), 'beta': 3.0, 'earlyWeeks': 6,
            'teams': cur}
     json.dump(doc, open('data/nfl-continuity.json', 'w'), indent=2, sort_keys=True)
     print(f'wrote data/nfl-continuity.json — season {latest}, {len(cur)} teams, '
           f'mean {mean:.3f}')
+    return 0
+
+
+def write_players(season):
+    """
+    pfr_id -> position and last season's snaps, so the roster-moves panel can
+    rank a trade by what the player actually was rather than listing moves in
+    date order. A backup guard and a starting quarterback are not the same
+    news, and the trades feed carries neither position nor playing time.
+    """
+    try:
+        rs = rows(fetch(SNAPS % season, f'snaps_{season}.csv'))
+    except Exception as e:
+        print(f'snaps {season} unavailable: {e}'); return 1
+    agg = defaultdict(lambda: {'pos': '', 'snaps': 0.0, 'team': ''})
+    for r in rs:
+        if r.get('game_type') != 'REG':
+            continue
+        pid = r.get('pfr_player_id')
+        if not pid:
+            continue
+        a = agg[pid]
+        a['pos'] = r.get('position') or a['pos']
+        a['team'] = r.get('team') or a['team']
+        for f in ('offense_snaps', 'defense_snaps', 'st_snaps'):
+            try:
+                a['snaps'] += float(r.get(f) or 0)
+            except ValueError:
+                pass
+    out = {pid: {'p': v['pos'], 's': int(v['snaps'])}
+           for pid, v in agg.items() if v['snaps'] > 0}
+    doc = {'generated': __import__('time').strftime('%Y-%m-%d'),
+           'season': season, 'players': out}
+    json.dump(doc, open('data/nfl-players.json', 'w'), separators=(',', ':'))
+    print(f'wrote data/nfl-players.json — {len(out)} players from {season}')
     return 0
 
 
@@ -242,8 +308,12 @@ def main():
     ap.add_argument('--to', dest='y1', type=int, default=2025)
     ap.add_argument('--write', action='store_true',
                     help='emit data/nfl-continuity.json and exit')
+    ap.add_argument('--write-players', type=int, metavar='SEASON',
+                    help='emit data/nfl-players.json (position + snaps) and exit')
     a = ap.parse_args()
 
+    if a.write_players:
+        return write_players(a.write_players)
     if a.write:
         return write_current(a.y0, a.y1)
 

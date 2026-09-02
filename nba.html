@@ -280,7 +280,7 @@
 
     // ── Data ───────────────────────────────────────────────────────────────
     async function loadHistory() {
-      const r = await fetch(SRC, { cache: 'force-cache' });
+      const r = await fetch(SRC);
       if (!r.ok) throw new Error('history file unavailable');
       const d = await r.json();
       TEAM_NAMES = d.teams || {};
@@ -687,7 +687,7 @@
 
     async function loadPlayers() {
       try {
-        const r = await fetch('data/nba-players.json', { cache: 'force-cache' });
+        const r = await fetch('data/nba-players.json');
         ROSTERS = r.ok ? await r.json() : null;
       } catch (e) { ROSTERS = null; }
     }

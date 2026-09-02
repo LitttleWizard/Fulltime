@@ -1429,3 +1429,13 @@
 @media (max-width: 700px) {
   .cont-row { grid-template-columns: 1fr 70px 40px 34px 36px; gap: 6px; }
 }
+
+/* Roster moves: position badge, and a marker for the ones that matter most */
+.move-pos {
+  display: inline-block; margin-left: 6px;
+  font-family: 'JetBrains Mono', monospace; font-size: 9px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--muted);
+  border: 1px solid var(--border-strong); border-radius: 3px; padding: 0 3px;
+}
+.move-row.is-key .move-name { font-weight: 600; }
+.move-row.is-key .move-pos { color: var(--accent); border-color: var(--accent); }

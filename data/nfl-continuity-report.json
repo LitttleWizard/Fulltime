@@ -1,8 +1,8 @@
 {
   "n": 2703,
-  "corrRating": 0.447,
-  "betaAll": 1.100000000000003,
-  "betaEarly": 2.500000000000004,
-  "betaLate": 0.38000000000000245,
+  "corrRating": 0.349,
+  "betaAll": 1.5600000000000034,
+  "betaEarly": 3.0000000000000044,
+  "betaLate": 0.5600000000000026,
   "bestRegressK": 0.0
 }

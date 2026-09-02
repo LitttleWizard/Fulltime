@@ -256,6 +256,7 @@
     // the block documenting it, and a let in the dead zone would throw into a
     // catch that silently swallows it.
     let CONT = null;
+    let PLAYERS = null;      // pfr_id -> { p: position, s: snaps last season }
     let modelFit = null;
     try {
       const r = await fetch('data/model-config.json', { cache: 'no-store' });
@@ -274,9 +275,18 @@
     } catch (e) { /* defaults stand */ }
 
     try {
-      const r = await fetch('data/nfl-continuity.json', { cache: 'force-cache' });
+      // Default caching, not force-cache: these files are regenerated when the
+      // analysis is re-run, and force-cache pins whatever the browser has
+      // regardless of freshness — it would ignore the 1h + stale-while-revalidate
+      // policy in vercel.json and serve last month's numbers indefinitely.
+      const r = await fetch('data/nfl-continuity.json');
       if (r.ok) CONT = await r.json();
     } catch (e) { /* continuity is additive; the model works without it */ }
+
+    try {
+      const r = await fetch('data/nfl-players.json');
+      if (r.ok) PLAYERS = (await r.json()).players;
+    } catch (e) { /* moves fall back to date order */ }
 
     const loadingEl = document.getElementById('loading');
     const loadingStatus = document.getElementById('loading-status');
@@ -357,7 +367,7 @@
     // era — noise, not signal). Counting bodies ignores player quality, and the
     // roster file that carried player value is stale after 2019.
     const TRADES_URL = 'https://raw.githubusercontent.com/nflverse/nfldata/master/data/trades.csv';
-    const TRADES_KEY = 'nfl-trades-cache-v1';
+    const TRADES_KEY = 'nfl-trades-cache-v2'   // v2: rows now carry pfr_id for the position join;
 
     async function loadTrades() {
       try {
@@ -374,7 +384,8 @@
           .filter(t => (t.pfr_name || '').trim())          // player moves only
           .map(t => ({
             date: t.trade_date || '', season: parseInt(t.season, 10) || 0,
-            name: t.pfr_name.trim(), gave: t.gave, received: t.received
+            name: t.pfr_name.trim(), id: (t.pfr_id || '').trim(),
+            gave: t.gave, received: t.received
           }))
           .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
         try { localStorage.setItem(TRADES_KEY, JSON.stringify({ ts: Date.now(), trades })); }
@@ -383,35 +394,70 @@
       } catch (e) { return []; }
     }
 
+    /* Roster moves, ranked by what the player actually was.
+     *
+     * The trades feed carries a name and two team codes — nothing about
+     * position or playing time — so listing moves in date order puts a
+     * practice-squad guard above a starting quarterback. Joining on pfr_id to
+     * last season's snap counts supplies both.
+     *
+     * Ranked on position first (a quarterback is the news whatever his snap
+     * count), then on snaps within a position. This panel is context only: the
+     * trade signal was tested and had no measurable effect on outcomes, and
+     * ordering it better does not change that.
+     */
+    const POS_RANK = {
+      QB: 0,
+      RB: 1, WR: 1, TE: 1, FB: 1,
+      T: 2, G: 2, C: 2, OL: 2,
+      DE: 3, DT: 3, DL: 3, NT: 3, EDGE: 3,
+      LB: 4, ILB: 4, OLB: 4, MLB: 4,
+      CB: 5, S: 5, FS: 5, SS: 5, DB: 5,
+      K: 6, P: 6, LS: 6
+    };
+    const POS_LABEL = { OL: 'OL', T: 'OT', G: 'OG', C: 'C' };
+
+    function moveRank(t) {
+      const info = PLAYERS && t.id ? PLAYERS[t.id] : null;
+      const pos = info ? info.p : '';
+      const rank = pos in POS_RANK ? POS_RANK[pos] : 7;
+      return { pos, snaps: info ? info.s : 0, rank };
+    }
+
     function renderMoves(home, away) {
       const el = document.getElementById('moves');
       if (!el) return;
+      // Recency gates the list, importance orders it. Ranking on importance
+      // alone surfaced a 2008 trade above this year's business — the panel is
+      // about the roster you are about to watch, not the franchise's history.
+      const latestSeason = trades.reduce((m, t) => Math.max(m, t.season || 0), 0);
+      const sinceSeason = latestSeason - 1;
       const col = team => {
         const rows = trades
-          .filter(t => t.received === team || t.gave === team)
-          .slice(-6).reverse();
+          .filter(t => (t.received === team || t.gave === team) && t.season >= sinceSeason)
+          .map(t => Object.assign({}, t, moveRank(t)))
+          // within that window: position group, then playing time, then recency
+          .sort((a, b) => a.rank - b.rank || b.snaps - a.snaps ||
+                          (b.date || '').localeCompare(a.date || ''))
+          .slice(0, 6);
         const body = rows.length
           ? rows.map(t => {
               const incoming = t.received === team;
+              const pos = t.pos ? (POS_LABEL[t.pos] || t.pos) : '';
+              const snaps = t.snaps ? `${t.snaps} snaps` : 'no snaps last year';
               return `
-                <div class="move-row">
+                <div class="move-row${t.rank <= 1 ? ' is-key' : ''}">
                   <span class="move-dir ${incoming ? 'in' : 'out'}">${incoming ? 'IN' : 'OUT'}</span>
-                  <span class="move-name">${t.name}</span>
-                  <span class="move-meta">${incoming ? 'from ' + t.gave : 'to ' + t.received} · ${t.date.slice(0, 7)}</span>
+                  <span class="move-name">${esc(t.name)}${pos ? `<span class="move-pos">${esc(pos)}</span>` : ''}</span>
+                  <span class="move-meta">${incoming ? 'from ' + esc(t.gave) : 'to ' + esc(t.received)} · ${esc(t.date.slice(0, 7))} · ${snaps}</span>
                 </div>`;
             }).join('')
-          : '<div class="moves-empty">No player trades on record.</div>';
-        return `<div class="moves-col"><div class="moves-team">${teamName(team)}</div>${body}</div>`;
+          : `<div class="moves-empty">No player trades since ${sinceSeason}.</div>`;
+        return `<div class="moves-col"><div class="moves-team">${esc(teamName(team))}</div>${body}</div>`;
       };
       el.innerHTML = col(away) + col(home);
     }
 
-    // ── Offence / defence ratings ──────────────────────────────────────────
-    // Fitted by offdef_test.py. These do NOT set the win probability — tested
-    // head-to-head, a single Elo rating predicts winners slightly better
-    // (0.6334 vs 0.6347 holdout log-loss). What they add is game *shape*: Elo
-    // can't tell a 31-28 matchup from a 13-10 one, and these can. Used only for
-    // the projected score.
     const OD_LR = 0.10, OD_HFA = 2.4, OD_REGRESS = 0.55, OD_BASE = 22.0;
 
     function computeOffDef(games) {
@@ -489,11 +535,10 @@
      * tested, and inventing one would be exactly the kind of unmeasured guess
      * this project keeps rejecting.
      *
-     * Honest caveat, stated on the page too: the 95% interval is
-     * [-0.00053, +0.01515] and spans zero. The effect is large and the placebo
-     * is clean, but it is not established. Importance-weighting was tested and
-     * made it worse (top-22 +0.00371, top-11 +0.00343), so plain snap share is
-     * what ships — continuity is roster depth, not star retention.
+     * Star-weighting was tested separately and made things worse (top-22
+     * +0.00371, top-11 +0.00343): what matters is roster depth, not which
+     * individual names left. Weighting the offensive line double was the only
+     * role variant that helped, and only marginally.
      *
      * Declared near the top of the script, above the fetch that fills it.
      */
@@ -960,11 +1005,11 @@
       document.getElementById('cont-foot').innerHTML = applied
         ? `Applied: this is a week ${'\u2264'} ${CONT.earlyWeeks} game, worth ` +
           `<b>${p.adj.continuity >= 0 ? '+' : ''}${(p.adj.continuity).toFixed(2)}</b> in log-odds to ` +
-          `${esc(teamName(home))}. Measured at +0.0076 log-loss in weeks 1–6 across 12 seasons, ` +
-          `with the effect vanishing after week 6 — that decay is what separates chemistry from ` +
-          `simply being good. The 95% interval spans zero, so treat it as suggestive rather than ` +
-          `established. Star-weighting was tested and performed worse: this is roster depth, not ` +
-          `key players.`
+          `${esc(teamName(home))}. Counts snaps kept plus half of snaps imported — a signing ` +
+          `brings ability but not familiarity, and half measured better than either ignoring ` +
+          `arrivals or counting them fully. Worth +0.0112 log-loss in weeks 1–6 across 12 seasons ` +
+          `(interval [+0.003, +0.019]), and the effect vanishes after week 6 — that decay is what ` +
+          `separates chemistry from simply being good.`
         : `Shown for context only. The effect was measured in weeks 1–${CONT.earlyWeeks} and ` +
           `vanishes afterwards, so it is not applied to this game.`;
     }
@@ -1063,16 +1108,20 @@
       <br><br>
       <b>Roster continuity, weeks 1–6.</b> Elo regresses every team toward the mean by the same
       amount each offseason, so it cannot know one side returned most of its roster while another
-      rebuilt. <code>nfl_continuity.py</code> measures the share of last season's snaps still on
-      the roster: leave-one-season-out over 12 seasons it is worth <b>+0.0076 log-loss in weeks
-      1–6</b>, and the effect <i>vanishes</i> afterwards (−0.0005). That decay is the whole case —
-      continuity correlates +0.45 with rating, so a team-quality proxy would show up all season.
+      rebuilt. <code>nfl_continuity.py</code> measures the experience actually available:
+      <b>snaps kept plus half of snaps imported</b>, over last season's total. Arrivals count half
+      because a signing brings ability but not team-specific familiarity — and half measured better
+      than either ignoring them (+0.0075) or counting them in full (+0.0084).
       <br><br>
-      Two honest qualifications. The 95% interval is <b>[−0.0005, +0.0152]</b> and spans zero, so
-      this is suggestive rather than established — it is applied only to the weeks where it was
-      measured, and no decay past week 6 was invented. And star-weighting was tested and performed
-      <i>worse</i> (top-22 +0.0037, top-11 +0.0034): continuity here is roster depth, not key-player
-      retention. Together they
+      Leave-one-season-out over 12 seasons it is worth <b>+0.0112 log-loss in weeks 1–6</b>,
+      interval <b>[+0.0032, +0.0192]</b>, in 10 of 12 seasons, with betas between +2.98 and +3.00.
+      The effect <i>vanishes</i> after week 6 (−0.0004), and that decay is the whole case:
+      continuity correlates +0.45 with rating, so a team-quality proxy would show up all season.
+      It is applied only to the weeks where it was measured; no decay past week 6 was invented.
+      <br><br>
+      Star-weighting was tested and performed <i>worse</i> (top-22 +0.0037, top-11 +0.0034), so this
+      is roster depth rather than key-player retention. Continuity as a team-specific offseason
+      regression rate was also tested and rejected (no gain over the flat rate). Together they
       move the held-out score from 0.6334 to 0.6293 log-loss and 64.3% to 64.6% — modest, but
       measured rather than assumed, and better than the QB signal alone (0.6304).
       <br><br>

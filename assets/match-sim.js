@@ -30,7 +30,7 @@
 
   function ready() {
     if (loading) return loading;
-    loading = fetch('data/sim-dist.json', { cache: 'force-cache' })
+    loading = fetch('data/sim-dist.json')
       .then(r => (r.ok ? r.json() : null))
       .then(d => { DIST = d; return d; })
       .catch(() => null);          // callers degrade to no simulation

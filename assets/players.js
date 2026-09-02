@@ -43,7 +43,7 @@
 
   function ready() {
     if (loading) return loading;
-    loading = fetch(SRC, { cache: 'force-cache' })
+    loading = fetch(SRC)
       .then(r => (r.ok ? r.json() : null))
       .then(d => { DATA = d; return d; })
       .catch(() => null);          // page must survive without player data
