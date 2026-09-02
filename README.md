@@ -1,7 +1,7 @@
 # Fulltime
 
 Sports match prediction for the Premier League, NFL and NBA, live at
-**[fulltime.beer](https://fulltime.beer)**.
+**[fulltime.beer](https://fulltime.beer)**. Built with [Claude Code](https://claude.com/claude-code).
 
 Static HTML, CSS and vanilla JavaScript. No backend, no API keys, no build step —
 every model is fitted in the browser on page load. The only compiled artefacts are
