@@ -367,7 +367,7 @@
     // era — noise, not signal). Counting bodies ignores player quality, and the
     // roster file that carried player value is stale after 2019.
     const TRADES_URL = 'https://raw.githubusercontent.com/nflverse/nfldata/master/data/trades.csv';
-    const TRADES_KEY = 'nfl-trades-cache-v2'   // v2: rows now carry pfr_id for the position join;
+    const TRADES_KEY = 'nfl-trades-cache-v3'   // v3: draft-pick rows excluded (v2 carried pfr_id);
 
     async function loadTrades() {
       try {
@@ -381,7 +381,13 @@
         const r = await fetch(TRADES_URL);
         if (!r.ok) return [];
         const trades = parseCSV(await r.text())
-          .filter(t => (t.pfr_name || '').trim())          // player moves only
+          // A row with a pick_round is a traded DRAFT PICK, labelled with the
+          // player that pick eventually became — not a trade of that player.
+          // 2,737 of the named rows are picks against 1,271 real player moves,
+          // so without this the panel mostly shows people who were never
+          // traded. Shedeur Sanders appeared to move NE -> SEA -> CLE in one
+          // day; that was pick #144 changing hands before the draft used it.
+          .filter(t => (t.pfr_name || '').trim() && !(t.pick_round || '').trim())
           .map(t => ({
             date: t.trade_date || '', season: parseInt(t.season, 10) || 0,
             name: t.pfr_name.trim(), id: (t.pfr_id || '').trim(),

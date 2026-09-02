@@ -126,14 +126,21 @@ the model overfitting itself slightly worse each season.
 2. **openfootball renamed every club in 2020-21.** 13 clubs existed as both
    "Manchester City" and "Manchester City FC", resetting ratings mid-history.
    Fixing it improved 2020-21 log-loss 1.0424 → 1.0223.
-3. **A silent NaN in the Elo refactor.** NBA stores scores as `hs`/`as`; the
+3. **A feed that labels draft picks with players.** nflverse `trades.csv` tags a
+   traded pick with whoever that pick eventually became, so 2,737 of its named
+   rows are picks against 1,271 real player moves. Unfiltered, the roster panel
+   showed Shedeur Sanders moving NE → SEA → CLE in a single day — that was pick
+   #144 changing hands before the draft used it. Rows carrying a `pick_round`
+   are now excluded. The continuity model was unaffected: it reads snap counts
+   and rosters, never trades.
+4. **A silent NaN in the Elo refactor.** NBA stores scores as `hs`/`as`; the
    extracted `Elo.run` expects `hg`/`ag`. Caught only because every rating and
    prediction was snapshotted before the refactor and diffed after.
-4. **An assumption shipped without test.** The match simulation disagreed with
+5. **An assumption shipped without test.** The match simulation disagreed with
    the headline; I suppressed the disagreement instead of measuring it. When
    measured, the margin view was significantly better for NBA — and no better
    for NFL.
-5. **A measure that was asking the wrong question.** Roster continuity first
+6. **A measure that was asking the wrong question.** Roster continuity first
    shipped as retention only — what a team kept — which scored a side that lost
    40% of its snaps and signed nobody identically to one that lost 40% and
    imported starters. Counting arrivals at half weight (ability without
@@ -141,7 +148,7 @@ the model overfitting itself slightly worse each season.
    with one that clears it. The placebo held throughout: the effect is large in
    weeks 1–6 and vanishes after, which a team-quality proxy could not do, and
    continuity correlates +0.45 with rating so that check was essential.
-6. **An accuracy figure from the wrong era.** An early version reported 53.6%
+7. **An accuracy figure from the wrong era.** An early version reported 53.6%
    for EPL, which was tuning-era. The honest held-out figure is 50.4%.
 
 ---
