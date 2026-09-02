@@ -47,14 +47,18 @@ inform a prediction, the other can only explain afterwards.
 ## Layout
 
 ```
-epl.html  nfl.html  nba.html  logs.html   pages, one per tab
-terminal.css                              shared layout for all tabs
-elo.js                                    the rating loop, all three leagues
-terminal-ui.js                            render helpers shared across tabs
-live.js                                   ESPN feeds: scores, play-by-play, lineups, injuries
-dixon-coles.js  trend-chart.js  players.js  theme.js  mobile-nav.js
-test/test_parity.py                       asserts elo.js and nba_model.py agree
+index.html epl.html nfl.html nba.html logs.html   pages (root: the URLs depend on it)
+assets/    terminal.css, elo.js, terminal-ui.js, live.js, trend-chart.js,
+           dixon-coles.js, players.js, theme.js, mobile-nav.js
+data/      the baked JSON the pages fetch, plus analysis outputs
+scripts/   every Python build + evaluation script
+test/      test_parity.py — asserts elo.js and nba_model.py agree
 ```
+
+Pages stay at the root because `fulltime.beer/epl` resolves to `epl.html`; moving
+them would break every URL. The Python scripts stay in one directory because they
+import each other, and each resolves paths from its own location, so they run from
+any working directory.
 
 Only the constants and the margin-of-victory multiplier differ per league
 (`Elo.mov.football` / `.nfl` / `.nba`) — the loop is shared. A few render helpers

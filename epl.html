@@ -12,15 +12,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <script src="theme.js"></script>
-  <link rel="stylesheet" href="terminal.css" />
+  <script src="assets/theme.js"></script>
+  <link rel="stylesheet" href="assets/terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
-  <script src="elo.js"></script>
-  <script src="dixon-coles.js"></script>
-  <script src="live.js"></script>
-  <script src="players.js"></script>
-  <script src="trend-chart.js"></script>
-  <script src="mobile-nav.js" defer></script>
+  <script src="assets/elo.js"></script>
+  <script src="assets/dixon-coles.js"></script>
+  <script src="assets/live.js"></script>
+  <script src="assets/players.js"></script>
+  <script src="assets/trend-chart.js"></script>
+  <script src="assets/mobile-nav.js" defer></script>
   <!-- Prerender the sibling tab on hover so switching leagues is instant:
        the data fetch and the model fit both happen before the click. -->
   <script type="speculationrules">
@@ -290,7 +290,7 @@
 
     async function loadShotsData() {
       try {
-        const r = await fetch('epl-shots.json');
+        const r = await fetch('data/epl-shots.json');
         if (!r.ok) return null;
         const d = await r.json();
         // the snapshot stores the "… FC" spellings; fold to the same canonical keys

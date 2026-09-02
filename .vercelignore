@@ -1,2 +1,7 @@
-*.py
-calibration-report.json
+scripts
+test
+data/nba-box.json
+data/lineups.json
+data/calibration-report.json
+data/nba-availability.json
+data/nba-calibration.json

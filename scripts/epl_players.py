@@ -26,6 +26,13 @@ Usage:  python3 epl_players.py
 import csv, io, json, math, re, sys, unicodedata, urllib.request
 from collections import defaultdict, deque
 
+# Paths below are relative to the repo root, so the script works from any
+# working directory. The join is absolute, so re-running it (a script that
+# imports another that also does this) is a no-op rather than climbing up.
+import os as _os
+_os.chdir(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+
+
 FIFA = 'https://raw.githubusercontent.com/ismailoksuz/EAFC26-DataHub/main/data/players.csv'
 OF = 'https://raw.githubusercontent.com/openfootball/football.json/master'
 SEASONS = ['2022-23', '2023-24', '2024-25', '2025-26']
@@ -214,7 +221,7 @@ def crossfit(rows, key):
 
 def main():
     try:
-        lineups = json.load(open('lineups.json'))
+        lineups = json.load(open('data/lineups.json'))
     except FileNotFoundError:
         print('lineups.json missing — run: python3 fetch_lineups.py'); return 1
 

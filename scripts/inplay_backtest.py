@@ -24,13 +24,20 @@ import urllib.request
 from collections import defaultdict
 from datetime import date, timedelta
 
+# Paths below are relative to the repo root, so the script works from any
+# working directory. The join is absolute, so re-running it (a script that
+# imports another that also does this) is a no-op rather than climbing up.
+import os as _os
+_os.chdir(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+
+
 OF = 'https://raw.githubusercontent.com/openfootball/football.json/master'
 ESPN = 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1'
 SEASONS = ['2023-24', '2024-25', '2025-26', '2026-27']
 WARMUP_SEASONS = 2
 CHECKPOINTS = [15, 30, 45, 60, 75]
 HALF_LIFE, HISTORY_DAYS, ITERS, MAXG = 200, 1000, 320, 8
-OUT = 'inplay-calibration.json'
+OUT = 'data/inplay-calibration.json'
 
 
 def get(url, tries=3):

@@ -27,7 +27,14 @@ from collections import defaultdict, deque
 
 import nba_model as M
 
-BOX = 'nba-box.json'
+# Paths below are relative to the repo root, so the script works from any
+# working directory. The join is absolute, so re-running it (a script that
+# imports another that also does this) is a no-op rather than climbing up.
+import os as _os
+_os.chdir(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+
+
+BOX = 'data/nba-box.json'
 FORM_N = 10        # prior games defining a player's recent value
 MIN_MIN = 8        # a rotation player, not a garbage-time cameo
 EPS = 1e-15
@@ -135,7 +142,7 @@ def main():
     except FileNotFoundError:
         print(f'{BOX} missing — run: python3 fetch_nba_box.py'); return 1
     games, teams = M.load()
-    cal = json.load(open('nba-calibration.json'))
+    cal = json.load(open('data/nba-calibration.json'))
     K, HOME, REG = cal['K'], cal['home'], cal['regress']
     print(f'{len(box)} games with box scores; Elo K={K} HOME={HOME} REGRESS={REG}')
 
@@ -178,7 +185,7 @@ def main():
     json.dump({'beta': round((b1 + b2) / 2, 3), 'n': len(rows),
                'base': base_ll, 'withAvail': xf_ll,
                'accBase': base_acc, 'accAvail': xf_acc},
-              open('nba-availability.json', 'w'), separators=(',', ':'))
+              open('data/nba-availability.json', 'w'), separators=(',', ':'))
     print('\nwrote nba-availability.json')
     return 0
 

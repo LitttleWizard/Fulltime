@@ -19,6 +19,13 @@ from datetime import date
 
 import nba_model as M
 
+# Paths below are relative to the repo root, so the script works from any
+# working directory. The join is absolute, so re-running it (a script that
+# imports another that also does this) is a no-op rather than climbing up.
+import os as _os
+_os.chdir(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+
+
 TUNE_MAX = 2024
 EPS = 1e-15
 
@@ -93,7 +100,7 @@ def fit(rows, feat, lo=-1.0, hi=1.0):
 
 def main():
     games, teams = M.load()
-    cal = json.load(open('nba-calibration.json'))
+    cal = json.load(open('data/nba-calibration.json'))
     K, HOME, REG = cal['K'], cal['home'], cal['regress']
     print(f'Elo constants from nba_model.py: K={K} HOME={HOME} REGRESS={REG}')
 

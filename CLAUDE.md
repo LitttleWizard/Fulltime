@@ -114,6 +114,14 @@ JSON is comment-free, so the reasoning lives here:
 - **Shared JS modules** cache for 5 minutes and revalidate, since they change
   with a deploy.
 
+## Layout
+
+Pages live at the root (the deployed URLs depend on it); everything else is
+sorted into `assets/` (JS + CSS), `data/` (baked JSON), `scripts/` (Python) and
+`test/`. Python scripts `chdir` to the repo root on import, so their data paths
+are `data/…` regardless of where you run them from. If you add a script that
+reads a data file, copy that four-line header or it will only work from the root.
+
 ## Shared modules
 
 `elo.js` holds the rating loop for all three tabs; only the constants and the

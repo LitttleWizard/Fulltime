@@ -10,9 +10,16 @@ Usage:  python3 fetch_lineups.py [--season 2025-26]
 import argparse, json, os, re, sys, time, urllib.request
 from datetime import date, timedelta
 
+# Paths below are relative to the repo root, so the script works from any
+# working directory. The join is absolute, so re-running it (a script that
+# imports another that also does this) is a no-op rather than climbing up.
+import os as _os
+_os.chdir(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+
+
 OF = 'https://raw.githubusercontent.com/openfootball/football.json/master'
 ESPN = 'https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1'
-OUT = 'lineups.json'
+OUT = 'data/lineups.json'
 
 
 def get(url, tries=3):

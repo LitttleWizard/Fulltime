@@ -16,8 +16,15 @@ Usage:  python3 build_nba.py [--from 2021] [--to 2026]
 import argparse, json, os, sys, time, urllib.request
 from datetime import date, timedelta
 
+# Paths below are relative to the repo root, so the script works from any
+# working directory. The join is absolute, so re-running it (a script that
+# imports another that also does this) is a no-op rather than climbing up.
+import os as _os
+_os.chdir(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+
+
 ESPN = 'https://site.api.espn.com/apis/site/v2/sports/basketball/nba'
-OUT = 'nba-games.json'
+OUT = 'data/nba-games.json'
 BLOCK = 14                      # days per request
 
 

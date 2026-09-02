@@ -14,7 +14,7 @@ Usage:  python3 test/test_parity.py
 import json, os, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, 'scripts'))
 TOL = 0.01          # ratings agree to a hundredth of a point
 
 
@@ -30,8 +30,8 @@ def js_ratings():
         { K: 16, homeAdv: 45, regress: 0.50, defaultRating: 1500,
           mov: window.Elo.mov.nba });
       console.log(JSON.stringify(r.ratings));
-    ''' % (json.dumps(os.path.join(ROOT, 'elo.js')),
-           json.dumps(os.path.join(ROOT, 'nba-games.json')))
+    ''' % (json.dumps(os.path.join(ROOT, 'assets', 'elo.js')),
+           json.dumps(os.path.join(ROOT, 'data', 'nba-games.json')))
     with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as f:
         f.write(script); path = f.name
     try:
@@ -47,7 +47,7 @@ def js_ratings():
 def py_ratings():
     import nba_model as M
     games, _ = M.load()
-    cal = json.load(open(os.path.join(ROOT, 'nba-calibration.json')))
+    cal = json.load(open(os.path.join(ROOT, 'data', 'nba-calibration.json')))
     *_, ratings = M.elo_run(games, cal['K'], cal['home'], cal['regress'])
     return dict(ratings)
 

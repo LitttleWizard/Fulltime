@@ -15,9 +15,16 @@ Usage:  python3 build_players.py
 import csv, io, json, os, re, sys, unicodedata, urllib.request
 from collections import defaultdict, deque
 
+# Paths below are relative to the repo root, so the script works from any
+# working directory. The join is absolute, so re-running it (a script that
+# imports another that also does this) is a no-op rather than climbing up.
+import os as _os
+_os.chdir(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+
+
 FIFA = 'https://raw.githubusercontent.com/ismailoksuz/EAFC26-DataHub/main/data/players.csv'
-OUT = 'epl-players.json'
-LINEUPS = 'lineups.json'
+OUT = 'data/epl-players.json'
+LINEUPS = 'data/lineups.json'
 FORM_N = 6        # matches in a club's rolling baseline XI, as tested
 SOFT = 6.0        # softmax temperature; see xiStrength() in players.js
 

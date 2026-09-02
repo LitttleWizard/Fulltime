@@ -15,10 +15,17 @@ import json
 import math
 import urllib.request
 
+# Paths below are relative to the repo root, so the script works from any
+# working directory. The join is absolute, so re-running it (a script that
+# imports another that also does this) is a no-op rather than climbing up.
+import os as _os
+_os.chdir(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+
+
 SEASONS = ['2017-18','2018-19','2019-20','2020-21','2021-22',
            '2022-23','2023-24','2024-25','2025-26','2026-27']
 OPENFOOTBALL_BASE = 'https://raw.githubusercontent.com/openfootball/football.json/master'
-SHOTS_FILE = 'epl-shots.json'
+SHOTS_FILE = 'data/epl-shots.json'
 WARMUP_SEASONS = 1  # first N seasons build state only, not scored
 FORM_WINDOW = 8
 
@@ -296,7 +303,7 @@ def main():
     print(f"Elo+draw only:    logloss={no_nudge_result['logloss']:.4f} brier={no_nudge_result['brier']:.4f} acc={no_nudge_result['accuracy']:.3f}")
     print(f"Baseline (hand):  logloss={baseline['logloss']:.4f} brier={baseline['brier']:.4f} acc={baseline['accuracy']:.3f}")
 
-    with open('calibration-report.json', 'w') as f:
+    with open('data/calibration-report.json', 'w') as f:
         json.dump({
             'params': params,
             'final': r4,

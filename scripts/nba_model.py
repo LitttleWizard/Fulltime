@@ -20,7 +20,14 @@ Usage:  python3 nba_model.py
 import json, math, sys
 from collections import defaultdict
 
-SRC = 'nba-games.json'
+# Paths below are relative to the repo root, so the script works from any
+# working directory. The join is absolute, so re-running it (a script that
+# imports another that also does this) is a no-op rather than climbing up.
+import os as _os
+_os.chdir(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+
+
+SRC = 'data/nba-games.json'
 TUNE_MAX = 2024          # seasons <= this are for tuning
 BASE = 1500.0
 
@@ -127,7 +134,7 @@ def main():
     json.dump({'K': K, 'home': HOME, 'regress': REG,
                'holdout': {'n': n, 'acc': hacc, 'logloss': hll, 'brier': hbr},
                'baselineHome': base_home},
-              open('nba-calibration.json', 'w'), separators=(',', ':'))
+              open('data/nba-calibration.json', 'w'), separators=(',', ':'))
     print('\nwrote nba-calibration.json')
     return 0
 

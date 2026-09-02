@@ -33,7 +33,7 @@
 (function (global) {
   'use strict';
 
-  const SRC = 'epl-players.json';
+  const SRC = 'data/epl-players.json';
   const SOFT = 6.0;    // softmax temperature; must match build_players.py
   const BETA = 0.53;   // measured, per 10 rating points of deviation
 

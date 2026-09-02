@@ -16,6 +16,13 @@ import json
 import urllib.request
 from datetime import datetime
 
+# Paths below are relative to the repo root, so the script works from any
+# working directory. The join is absolute, so re-running it (a script that
+# imports another that also does this) is a no-op rather than climbing up.
+import os as _os
+_os.chdir(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..'))
+
+
 SEASONS = ["2223", "2324", "2425", "2526", "2627"]  # last ~4 full seasons + current
 BASE = "https://www.football-data.co.uk/mmz4281/{s}/E0.csv"
 
@@ -119,7 +126,7 @@ def main():
         "seasons": SEASONS,
         "matches": matches,
     }
-    with open("epl-shots.json", "w") as f:
+    with open("data/epl-shots.json", "w") as f:
         json.dump(out, f, separators=(",", ":"))
     print(f"wrote epl-shots.json — {len(matches)} matches")
 
