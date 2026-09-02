@@ -49,9 +49,18 @@ inform a prediction, the other can only explain afterwards.
 ```
 epl.html  nfl.html  nba.html  logs.html   pages, one per tab
 terminal.css                              shared layout for all tabs
+elo.js                                    the rating loop, all three leagues
+terminal-ui.js                            render helpers shared across tabs
 live.js                                   ESPN feeds: scores, play-by-play, lineups, injuries
 dixon-coles.js  trend-chart.js  players.js  theme.js  mobile-nav.js
+test/test_parity.py                       asserts elo.js and nba_model.py agree
 ```
+
+Only the constants and the margin-of-victory multiplier differ per league
+(`Elo.mov.football` / `.nfl` / `.nba`) — the loop is shared. A few render helpers
+*look* duplicated but genuinely differ (football reports draws and counts five
+head-to-head meetings; the others count six), so those stay local rather than
+being forced together.
 
 **Baking data** (offline, writes the JSON the pages fetch):
 
@@ -62,6 +71,13 @@ python3 build_players.py       # epl-players.json
 python3 build_nba.py           # nba-games.json
 python3 fetch_nba_box.py       # nba-box.json      (~2,800 requests, ~20 min)
 python3 build_nba_players.py   # nba-players.json
+```
+
+**Testing** — the browser and the Python scripts must agree, since every accuracy
+figure comes from Python while visitors see numbers from `elo.js`:
+
+```bash
+python3 test/test_parity.py
 ```
 
 **Evaluating models** (prints held-out scores; changes nothing):

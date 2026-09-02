@@ -102,6 +102,31 @@ honest figures: EPL 50.4% (market 51.9%), NFL 64.3% (market 67.9%), NBA 67.6%
 - `epl_players.py` / `epl_squad.py` — tested EA FC ratings against Dixon-Coles
 - `diagnose.py` — tests candidate signals before building them
 
+## Caching (`vercel.json`)
+
+JSON is comment-free, so the reasoning lives here:
+
+- **HTML** revalidates every request, so a deploy is visible immediately.
+- **Baked datasets** (`nba-games.json` and friends) change only when a build
+  script is re-run — weekly at most — so they cache for an hour and then serve
+  stale for a day while revalidating. A repeat visitor pays no round-trip for
+  ~1 MB of history. Bump nothing when you rebuild; the hour covers it.
+- **Shared JS modules** cache for 5 minutes and revalidate, since they change
+  with a deploy.
+
+## Shared modules
+
+`elo.js` holds the rating loop for all three tabs; only the constants and the
+margin-of-victory multiplier are league-specific (`Elo.mov.football/nfl/nba`).
+`terminal-ui.js` holds the handful of render helpers that were byte-identical
+across pages. `formPills`, `renderWatchlist` and `h2hSummary` look duplicated
+but genuinely differ per league (football reports draws and counts five
+meetings; the others count six) — they are deliberately left local.
+
+`test/test_parity.py` asserts elo.js and `nba_model.py` produce the same
+ratings. Run it after touching either; every accuracy claim on the site depends
+on the two agreeing.
+
 Deployed to Vercel via `./deploy.sh` (wraps `vercel --prod`).
 
 This directory lives inside `~/ui:ux` but is its own git repo and its own Vercel

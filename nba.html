@@ -15,6 +15,8 @@
   <script src="theme.js"></script>
   <link rel="stylesheet" href="terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
+  <script src="elo.js"></script>
+  <script src="terminal-ui.js"></script>
   <script src="live.js"></script>
   <script src="trend-chart.js"></script>
   <script src="mobile-nav.js" defer></script>
@@ -277,78 +279,22 @@
     }
 
     // ── Elo ────────────────────────────────────────────────────────────────
-    /**
-     * Margin-of-victory multiplier, FiveThirtyEight's NBA form.
-     *
-     * The `/(7.5 + 0.006 * winnerDiff)` term is the autocorrelation correction:
-     * without it a strong team keeps running up the score on weak ones and its
-     * rating inflates without bound.
-     */
-    function movMultiplier(margin, winnerDiff) {
-      return Math.pow(Math.abs(margin) + 3, 0.8) / (7.5 + 0.006 * winnerDiff);
-    }
+    // The loop lives in elo.js; only the constants and the margin multiplier
+    // are league-specific. Elo.mov.nba carries 538's power curve with the
+    // autocorrelation correction.
+    // nba-games.json stores scores as hs/as; Elo.run's contract is hg/ag.
+    const computeElo = games => Elo.run(
+      games.map(g => ({ date: g.date, season: g.season, home: g.home,
+                        away: g.away, hg: g.hs, ag: g.as, neutral: g.neutral })),
+      { K, homeAdv: HOME_ADV, regress: REGRESS,
+        defaultRating: DEFAULT_RATING, mov: Elo.mov.nba });
 
-    function computeElo(games) {
-      const ratings = {}, history = {}, ratingTrail = {}, lastPlayed = {};
-      let prevSeason = null;
-      const get = t => (t in ratings ? ratings[t] : DEFAULT_RATING);
-
-      for (const g of games) {
-        if (prevSeason !== null && g.season !== prevSeason) {
-          for (const t in ratings) {
-            ratings[t] = DEFAULT_RATING + (ratings[t] - DEFAULT_RATING) * REGRESS;
-          }
-          for (const t in lastPlayed) delete lastPlayed[t];
-        }
-        prevSeason = g.season;
-
-        const h = g.home, a = g.away;
-        const Rh = get(h), Ra = get(a);
-        const dr = Rh - Ra + (g.neutral ? 0 : HOME_ADV);
-        const pHome = 1 / (1 + Math.pow(10, -dr / 400));
-        const margin = g.hs - g.as;
-        const won = margin > 0 ? 1 : 0;
-        const delta = K * movMultiplier(margin, won ? dr : -dr) * (won - pHome);
-
-        ratings[h] = Rh + delta;
-        ratings[a] = Ra - delta;
-        (ratingTrail[h] = ratingTrail[h] || []).push({
-          date: g.date, rating: ratings[h], delta, opp: a, venue: 'home',
-          gf: g.hs, ga: g.as, result: won ? 'W' : 'L'
-        });
-        (ratingTrail[a] = ratingTrail[a] || []).push({
-          date: g.date, rating: ratings[a], delta: -delta, opp: h, venue: 'away',
-          gf: g.as, ga: g.hs, result: won ? 'L' : 'W'
-        });
-        [[h, a, g.hs, g.as, 'home'], [a, h, g.as, g.hs, 'away']].forEach(([team, opp, pf, pa, venue]) => {
-          (history[team] = history[team] || []).push({
-            date: g.date, opponent: opp, venue, gf: pf, ga: pa, season: g.season,
-            result: pf > pa ? 'W' : 'L'
-          });
-        });
-        const d = dayNum(g.date);
-        lastPlayed[h] = d; lastPlayed[a] = d;
-      }
-      return { ratings, history, ratingTrail, lastPlayed };
-    }
-
-    function recentStats(history, team, n) {
-      const h = (history[team] || []).slice(-n);
-      if (!h.length) return null;
-      return {
-        pf: h.reduce((s, m) => s + m.gf, 0) / h.length,
-        pa: h.reduce((s, m) => s + m.ga, 0) / h.length,
-        margin: h.reduce((s, m) => s + (m.gf - m.ga), 0) / h.length,
-        wins: h.filter(m => m.result === 'W').length,
-        n: h.length
-      };
-    }
 
     function predict(elo, home, away, b2b, game) {
       const Rh = elo.ratings[home] ?? DEFAULT_RATING;
       const Ra = elo.ratings[away] ?? DEFAULT_RATING;
       const dr = Rh - Ra + (game && game.neutral ? 0 : HOME_ADV);
-      let z = Math.log(10) * dr / 400;         // Elo gap as log-odds
+      let z = Elo.logOdds(Rh, Ra, game && game.neutral ? 0 : HOME_ADV);
 
       // A tired away side helps the home team and vice versa.
       const net = ((b2b && b2b.away) ? 1 : 0) - ((b2b && b2b.home) ? 1 : 0);
@@ -369,8 +315,8 @@
       return {
         homeWin, awayWin: 1 - homeWin, Rh, Ra, spread, b2bNet: net,
         availNet, outHome: oh, outAway: oa,
-        sHome: recentStats(elo.history, home, 8),
-        sAway: recentStats(elo.history, away, 8)
+        sHome: UI.recentStats(elo.history, home, 8),
+        sAway: UI.recentStats(elo.history, away, 8)
       };
     }
 
@@ -382,7 +328,7 @@
     }
 
     function projectScore(elo, home, away) {
-      const sh = recentStats(elo.history, home, 12), sa = recentStats(elo.history, away, 12);
+      const sh = UI.recentStats(elo.history, home, 12), sa = UI.recentStats(elo.history, away, 12);
       if (!sh || !sa) return null;
       // League scoring level, split by the model's expected margin.
       const base = (sh.pf + sh.pa + sa.pf + sa.pa) / 4;
@@ -418,22 +364,6 @@
       trendChart.render(elo.ratingTrail, home, away);
     }
 
-    function metricRow(label, a, h, dp) {
-      const max = Math.max(a || 0, h || 0, 0.01) * 1.15;
-      const fmt = v => (v == null ? '—' : v.toFixed(dp));
-      return `
-        <div class="metric-group">
-          <div class="metric-label">${label}</div>
-          <div class="metric-bar-row">
-            <div class="metric-bar-track"><div class="metric-bar-fill away" style="width:${clamp(((a || 0) / max) * 100, 0, 100)}%"></div></div>
-            <div class="metric-bar-val">${fmt(a)}</div>
-          </div>
-          <div class="metric-bar-row">
-            <div class="metric-bar-track"><div class="metric-bar-fill home" style="width:${clamp(((h || 0) / max) * 100, 0, 100)}%"></div></div>
-            <div class="metric-bar-val">${fmt(h)}</div>
-          </div>
-        </div>`;
-    }
 
     function h2hSummary(history, home, away) {
       const h = (history[home] || []).filter(m => m.opponent === away).slice(-6);
@@ -634,10 +564,10 @@
         <div class="legend-item"><span class="legend-swatch" style="background:var(--series-home)"></span>${esc(teamName(home))}</div>`;
       const sh = p.sHome, sa = p.sAway;
       document.getElementById('metric-bars').innerHTML =
-        metricRow('Points scored / game (last 8)', sa && sa.pf, sh && sh.pf, 1) +
-        metricRow('Points allowed / game', sa && sa.pa, sh && sh.pa, 1) +
-        metricRow('Wins in last 8', sa && sa.wins, sh && sh.wins, 0) +
-        metricRow('Average margin', sa && sa.margin, sh && sh.margin, 1);
+        UI.metricRow('Points scored / game (last 8)', sa && sa.pf, sh && sh.pf, 1) +
+        UI.metricRow('Points allowed / game', sa && sa.pa, sh && sh.pa, 1) +
+        UI.metricRow('Wins in last 8', sa && sa.wins, sh && sh.wins, 0) +
+        UI.metricRow('Average margin', sa && sa.margin, sh && sh.margin, 1);
 
       const block = t => `
         <div class="stat-team">${esc(teamName(t))}</div>

@@ -15,6 +15,8 @@
   <script src="theme.js"></script>
   <link rel="stylesheet" href="terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
+  <script src="elo.js"></script>
+  <script src="terminal-ui.js"></script>
   <script src="live.js"></script>
   <script src="trend-chart.js"></script>
   <script src="mobile-nav.js" defer></script>
@@ -383,68 +385,17 @@
     // NFL scoring isn't Poisson (points come in 7s and 3s), and ties are ~0.2%
     // of games, so the EPL tab's Dixon-Coles goals model has nothing to model
     // here. Elo on margin of victory is the right shape for this sport.
-    function movMultiplier(margin, winnerDiff) {
-      return Math.log(Math.abs(margin) + 1) * (2.2 / (winnerDiff * 0.001 + 2.2));
-    }
+    // The Elo loop lives in elo.js; only the constants and the margin
+    // multiplier are league-specific. nflverse rows carry a `played` flag and
+    // score fields named hs/as, so they are adapted to Elo.run's contract here.
+    const computeElo = games => Elo.run(
+      games.filter(g => g.played)
+           .map(g => ({ date: g.date, season: g.season, home: g.home,
+                        away: g.away, hg: g.hs, ag: g.as })),
+      { K, homeAdv: HOME_ADV, regress: REGRESS,
+        defaultRating: DEFAULT_RATING, mov: Elo.mov.nfl });
 
-    function computeElo(games) {
-      const ratings = {}, history = {}, ratingTrail = {};
-      let prevSeason = null;
-      const get = t => (t in ratings ? ratings[t] : DEFAULT_RATING);
 
-      for (const g of games) {
-        if (!g.played) continue;
-        if (prevSeason !== null && g.season !== prevSeason) {
-          for (const t in ratings) {
-            ratings[t] = DEFAULT_RATING + (ratings[t] - DEFAULT_RATING) * REGRESS;
-          }
-        }
-        prevSeason = g.season;
-
-        const h = g.home, a = g.away;
-        const Rh = get(h), Ra = get(a);
-        const dr = Rh - Ra + HOME_ADV;
-        const pHome = 1 / (1 + Math.pow(10, -dr / 400));
-        const margin = g.hs - g.as;
-        const actual = margin > 0 ? 1 : margin < 0 ? 0 : 0.5;
-        const mult = margin === 0 ? 1 : movMultiplier(margin, margin > 0 ? dr : -dr);
-        const delta = K * mult * (actual - pHome);
-
-        ratings[h] = Rh + delta;
-        ratings[a] = Ra - delta;
-        // carry match context so the chart can explain each move
-        (ratingTrail[h] = ratingTrail[h] || []).push({
-          date: g.date, rating: ratings[h], delta, opp: a, venue: 'home',
-          gf: g.hs, ga: g.as, result: margin > 0 ? 'W' : margin < 0 ? 'L' : 'D'
-        });
-        (ratingTrail[a] = ratingTrail[a] || []).push({
-          date: g.date, rating: ratings[a], delta: -delta, opp: h, venue: 'away',
-          gf: g.as, ga: g.hs, result: margin < 0 ? 'W' : margin > 0 ? 'L' : 'D'
-        });
-
-        [[h, a, g.hs, g.as, 'home'], [a, h, g.as, g.hs, 'away']].forEach(([team, opp, pf, pa, venue]) => {
-          (history[team] = history[team] || []).push({
-            date: g.date, opponent: opp, venue, gf: pf, ga: pa, season: g.season,
-            result: pf > pa ? 'W' : pf < pa ? 'L' : 'D'
-          });
-        });
-      }
-      return { ratings, history, ratingTrail };
-    }
-
-    function recentStats(history, team, n) {
-      const h = (history[team] || []).slice(-n);
-      if (!h.length) return null;
-      return {
-        pf: h.reduce((s, m) => s + m.gf, 0) / h.length,
-        pa: h.reduce((s, m) => s + m.ga, 0) / h.length,
-        margin: h.reduce((s, m) => s + (m.gf - m.ga), 0) / h.length,
-        wins: h.filter(m => m.result === 'W').length,
-        n: h.length
-      };
-    }
-
-    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
     // Adjustments on top of Elo, jointly fitted by nfl_features.py on 2001-2022
     // and scored on the 2023+ holdout: 0.6334 -> 0.6293 log-loss, 64.3 -> 64.6%.
@@ -461,7 +412,7 @@
       const Rh = elo.ratings[home] ?? DEFAULT_RATING;
       const Ra = elo.ratings[away] ?? DEFAULT_RATING;
       const dr = Rh - Ra + HOME_ADV;
-      let z = Math.log(10) * dr / 400;   // Elo gap as log-odds
+      let z = Elo.logOdds(Rh, Ra, HOME_ADV);
       const adj = {};
 
       // Backup QB: away disruption helps the home side and vice versa.
@@ -469,7 +420,7 @@
       if (qbNet !== 0) { adj.qb = QB_BETA * qbNet; z += adj.qb; }
 
       if (game && game.homeRest != null && game.awayRest != null) {
-        const rest = clamp(game.homeRest - game.awayRest, -7, 7) / 7;
+        const rest = UI.clamp(game.homeRest - game.awayRest, -7, 7) / 7;
         if (rest) { adj.rest = REST_BETA * rest; z += adj.rest; }
       }
       if (game && game.div) { adj.div = DIV_BETA; z += adj.div; }
@@ -480,8 +431,8 @@
       const spread = (z * 400 / Math.LN10) / 25;
       return {
         homeWin, awayWin: 1 - homeWin, Rh, Ra, spread, qbNet, adj,
-        sHome: recentStats(elo.history, home, 8),
-        sAway: recentStats(elo.history, away, 8)
+        sHome: UI.recentStats(elo.history, home, 8),
+        sAway: UI.recentStats(elo.history, away, 8)
       };
     }
 
@@ -513,22 +464,6 @@
       trendChart.render(elo.ratingTrail, home, away);
     }
 
-    function metricRow(label, a, h, dp) {
-      const max = Math.max(a || 0, h || 0, 0.01) * 1.15;
-      const fmt = v => (v == null ? '—' : v.toFixed(dp));
-      return `
-        <div class="metric-group">
-          <div class="metric-label">${label}</div>
-          <div class="metric-bar-row">
-            <div class="metric-bar-track"><div class="metric-bar-fill away" style="width:${clamp(((a || 0) / max) * 100, 0, 100)}%"></div></div>
-            <div class="metric-bar-val">${fmt(a)}</div>
-          </div>
-          <div class="metric-bar-row">
-            <div class="metric-bar-track"><div class="metric-bar-fill home" style="width:${clamp(((h || 0) / max) * 100, 0, 100)}%"></div></div>
-            <div class="metric-bar-val">${fmt(h)}</div>
-          </div>
-        </div>`;
-    }
 
     function h2hSummary(history, home, away) {
       const h = (history[home] || []).filter(m => m.opponent === away).slice(-6);
@@ -722,10 +657,10 @@
         <div class="legend-item"><span class="legend-swatch" style="background:var(--series-home)"></span>${teamName(home)}</div>`;
       const sh = p.sHome, sa = p.sAway;
       document.getElementById('metric-bars').innerHTML =
-        metricRow('Points scored / game (last 8)', sa && sa.pf, sh && sh.pf, 1) +
-        metricRow('Points allowed / game', sa && sa.pa, sh && sh.pa, 1) +
-        metricRow('Wins in last 8', sa && sa.wins, sh && sh.wins, 0) +
-        metricRow('Average margin', sa && sa.margin, sh && sh.margin, 1);
+        UI.metricRow('Points scored / game (last 8)', sa && sa.pf, sh && sh.pf, 1) +
+        UI.metricRow('Points allowed / game', sa && sa.pa, sh && sh.pa, 1) +
+        UI.metricRow('Wins in last 8', sa && sa.wins, sh && sh.wins, 0) +
+        UI.metricRow('Average margin', sa && sa.margin, sh && sh.margin, 1);
 
       const block = t => `
         <div class="stat-team">${teamName(t)}</div>

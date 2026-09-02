@@ -15,6 +15,7 @@
   <script src="theme.js"></script>
   <link rel="stylesheet" href="terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
+  <script src="elo.js"></script>
   <script src="dixon-coles.js"></script>
   <script src="live.js"></script>
   <script src="players.js"></script>
@@ -324,69 +325,28 @@
       return null;
     }
 
-    function movMultiplier(gd) {
-      if (gd <= 1) return 1;
-      if (gd === 2) return 1.5;
-      return (11 + gd) / 8;
-    }
-
+    // The Elo loop lives in elo.js. Football keeps its goal-difference bands
+    // (Elo.mov.football) — small integer scores don't need a curve. openfootball
+    // groups matches by season, so they are flattened to Elo.run's flat
+    // chronological contract here.
     function computeElo(seasonsData) {
-      const ratings = {};
-      const history = {}; // team -> chronological [{date, opponent, venue, gf, ga, result, season}]
-      const ratingTrail = {}; // team -> chronological [{date, rating}] snapshot after each match
-
-      function getRating(t) {
-        return Object.prototype.hasOwnProperty.call(ratings, t) ? ratings[t] : DEFAULT_RATING;
-      }
-
-      seasonsData.forEach((season, idx) => {
-        if (idx > 0) {
-          Object.keys(ratings).forEach(t => {
-            ratings[t] = DEFAULT_RATING + (ratings[t] - DEFAULT_RATING) * REGRESS;
-          });
-        }
-        const matches = season.matches
+      const games = [];
+      seasonsData.forEach(season => {
+        season.matches
           .filter(m => finalScore(m))
           .slice()
-          .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-
-        matches.forEach(m => {
-          const home = m.team1, away = m.team2;
-          const [hg, ag] = finalScore(m);
-          const Rh = getRating(home), Ra = getRating(away);
-          const dr = Rh - Ra + HOME_ADV;
-          const We = 1 / (1 + Math.pow(10, -dr / 400));
-          const actual = hg > ag ? 1 : hg < ag ? 0 : 0.5;
-          const mult = movMultiplier(Math.abs(hg - ag));
-          const delta = K * mult * (actual - We);
-
-          ratings[home] = Rh + delta;
-          ratings[away] = Ra - delta;
-
-          // carry match context so the chart can explain each move
-          (ratingTrail[home] = ratingTrail[home] || []).push({
-            date: m.date, rating: ratings[home], delta, opp: away, venue: 'home',
-            gf: hg, ga: ag, result: hg > ag ? 'W' : hg < ag ? 'L' : 'D'
+          .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+          .forEach(m => {
+            const [hg, ag] = finalScore(m);
+            games.push({ date: m.date, season: season.season,
+                         home: m.team1, away: m.team2, hg, ag });
           });
-          (ratingTrail[away] = ratingTrail[away] || []).push({
-            date: m.date, rating: ratings[away], delta: -delta, opp: home, venue: 'away',
-            gf: ag, ga: hg, result: ag > hg ? 'W' : ag < hg ? 'L' : 'D'
-          });
-
-          [[home, away, hg, ag, 'home'], [away, home, ag, hg, 'away']].forEach(([team, opp, gf, ga, venue]) => {
-            (history[team] = history[team] || []).push({
-              date: m.date, opponent: opp, venue, gf, ga,
-              result: gf > ga ? 'W' : gf < ga ? 'L' : 'D',
-              season: season.season
-            });
-          });
-        });
       });
-
-      Object.keys(history).forEach(t => history[t].sort((a, b) => (a.date || '').localeCompare(b.date || '')));
-
-      return { ratings, history, ratingTrail };
+      return Elo.run(games, { K, homeAdv: HOME_ADV, regress: REGRESS,
+                              defaultRating: DEFAULT_RATING,
+                              mov: Elo.mov.football });
     }
+
 
     // Dixon-Coles lives in dixon-coles.js, shared with the prediction log.
     const fitDixonColes = (m, d) => DixonColes.fit(m, d);
