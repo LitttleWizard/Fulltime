@@ -1216,3 +1216,15 @@
 }
 .chart-cell .metric-group { margin-bottom: 10px; }
 .ts-norate { color: var(--muted); font-style: italic; }
+
+/* NBA rotation rows reuse the EPL team-sheet styling, plus injury tags */
+.ts-pos { color: var(--muted); font-size: 10px; margin-left: 6px; }
+.ts-inj {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+  padding: 1px 4px; border-radius: 3px; margin-left: 6px;
+  border: 1px solid transparent;
+}
+.ts-inj.out { color: var(--down); border-color: var(--down); }
+.ts-inj.dtd { color: var(--muted); border-color: var(--border-strong); }
+.ts-row.ts-out .ts-name, .ts-row.ts-out .ts-ovr { opacity: 0.55; text-decoration: line-through; }
+.ts-row.ts-out .ts-inj { text-decoration: none; }

@@ -136,6 +136,20 @@
             </div>
           </div>
 
+          <!-- Rotation + injury report. Injuries are published days ahead, so
+               unlike the EPL team sheet this is known before tip-off. -->
+          <div class="center-section" id="roster-section" style="display:none;">
+            <div class="sheet-head">
+              <div class="card-title">Rotation &amp; Availability</div>
+              <div class="sheet-note" id="roster-note"></div>
+            </div>
+            <div class="sheet-grid">
+              <div class="sheet-col" id="roster-away"></div>
+              <div class="sheet-col" id="roster-home"></div>
+            </div>
+            <div class="sheet-foot" id="roster-foot"></div>
+          </div>
+
           <div class="center-section">
             <div class="card-title">How This Works</div>
             <div class="methodology" id="methodology"></div>
@@ -181,6 +195,13 @@
     // Back-to-back, fitted on <= 2024 and scored on the holdout by
     // nba_features.py: 0.6099 -> 0.6078 log-loss, 66.5% -> 67.0%.
     const B2B_BETA = 0.28;
+    // Availability, measured by nba_players.py on 2,672 games with box scores:
+    // 0.6068 -> 0.5995 log-loss and 67.0% -> 67.6%, cross-fitted betas +1.70/+1.80.
+    // Applied here to a noisier input than it was fitted on — the backtest knew
+    // exactly who played, whereas an injury report ahead of tip-off does not —
+    // so the live effect is smaller than the measured one, and conservative:
+    // an unlisted late scratch simply leaves the number where Elo had it.
+    const AVAIL_BETA = 1.75;
     // Measured on 8150 games, regressing margin on the rating gap. The NFL tab
     // uses ~25; basketball's larger scores make each Elo point worth more.
     const ELO_PER_POINT = 20.1;
@@ -333,10 +354,21 @@
       const net = ((b2b && b2b.away) ? 1 : 0) - ((b2b && b2b.home) ? 1 : 0);
       if (net !== 0) z += B2B_BETA * net;
 
+      // Availability: what a rating built from past results cannot know is that
+      // tonight's leading scorer is out. Feature is the difference in the share
+      // of usual scoring available, so it is zero whenever both sides are whole.
+      const oh = scoringOut(home), oa = scoringOut(away);
+      let availNet = 0;
+      if (oh && oa) {
+        availNet = (1 - oh.fraction) - (1 - oa.fraction);   // = oa - oh
+        if (availNet !== 0) z += AVAIL_BETA * availNet;
+      }
+
       const homeWin = 1 / (1 + Math.exp(-z));
       const spread = (z * 400 / Math.LN10) / ELO_PER_POINT;
       return {
         homeWin, awayWin: 1 - homeWin, Rh, Ra, spread, b2bNet: net,
+        availNet, outHome: oh, outAway: oa,
         sHome: recentStats(elo.history, home, 8),
         sAway: recentStats(elo.history, away, 8)
       };
@@ -563,7 +595,9 @@
         `ELO <b>${Math.round(p.Ra)}</b> · <b>${Math.round(p.Rh)}</b>` +
         `&nbsp;&nbsp;HOME ADV <b>+${HOME_ADV}</b>` +
         `&nbsp;&nbsp;PROJ SPREAD <b>${esc(fav)} −${spread.toFixed(1)}</b>` +
-        (p.b2bNet ? `&nbsp;&nbsp;<b style="color:var(--live)">B2B ADJ</b>` : '');
+        (p.b2bNet ? `&nbsp;&nbsp;<b style="color:var(--live)">B2B ADJ</b>` : '') +
+        (Math.abs(p.availNet) > 0.01
+          ? `&nbsp;&nbsp;<b style="color:var(--live)">INJ ADJ</b>` : '');
       document.getElementById('symbol-price').textContent = favPct + '%';
       document.getElementById('symbol-price-label').textContent = `${teamName(fav)} favored`;
 
@@ -615,6 +649,111 @@
 
       renderWatchlist();
       renderTrendChart(elo, home, away);
+      renderRosters();
+    }
+
+    /* ── Rotation and availability ─────────────────────────────────────────
+     *
+     * Scoring averages are baked into nba-players.json by build_nba_players.py
+     * (box-score averages joined to roster names — the box score has only
+     * athlete ids, the roster has no stats, so neither works alone).
+     *
+     * Injuries come live from ESPN, one league-wide request, matched to those
+     * players by name. The feed keys teams by display name and reports no
+     * athlete id, so name matching is the only join available.
+     */
+    let ROSTERS = null, INJURIES = null;
+    const nameToAbbr = {};
+    Object.entries(TEAM_NAMES).forEach(([abbr, disp]) => { nameToAbbr[disp] = abbr; });
+
+    async function loadPlayers() {
+      try {
+        const r = await fetch('nba-players.json', { cache: 'force-cache' });
+        ROSTERS = r.ok ? await r.json() : null;
+      } catch (e) { ROSTERS = null; }
+    }
+
+    async function loadInjuries() {
+      try {
+        const byName = await Live.injuries('nba');
+        const out = Object.create(null);
+        for (const [disp, rows] of Object.entries(byName || {})) {
+          const abbr = nameToAbbr[disp];
+          if (abbr) out[abbr] = rows;
+        }
+        INJURIES = out;
+      } catch (e) { INJURIES = null; }
+    }
+
+    const normName = s => String(s || '')
+      .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean).join(' ');
+
+    /** Injury row for a player, or null. Matched on name — the feed has no id. */
+    function injuryFor(team, playerName) {
+      const rows = INJURIES && INJURIES[team];
+      if (!rows) return null;
+      const want = normName(playerName);
+      return rows.find(r => normName(r.name) === want) || null;
+    }
+
+    /**
+     * Share of a team's usual scoring that is currently unavailable.
+     * "Out" counts fully; "Day-To-Day" is genuinely uncertain, so it is shown
+     * but deliberately NOT counted — treating a questionable player as absent
+     * would overstate the effect on most nights.
+     */
+    function scoringOut(team) {
+      const rows = ROSTERS && ROSTERS.teams && ROSTERS.teams[team];
+      if (!rows || !rows.length) return null;
+      const total = rows.reduce((s, p) => s + p.ppg, 0);
+      if (total <= 0) return null;
+      let out = 0;
+      for (const p of rows) {
+        const inj = injuryFor(team, p.n);
+        if (inj && /out/i.test(inj.status)) out += p.ppg;
+      }
+      return { fraction: out / total, points: out, total };
+    }
+
+    function rosterCol(team) {
+      const rows = (ROSTERS && ROSTERS.teams && ROSTERS.teams[team]) || [];
+      if (!rows.length) return '';
+      const body = rows.map(p => {
+        const inj = injuryFor(team, p.n);
+        const isOut = inj && /out/i.test(inj.status);
+        const cls = isOut ? 'ts-out' : inj ? 'ts-dtd' : '';
+        const tagTxt = isOut ? 'OUT' : inj ? 'DTD' : '';
+        const tag = tagTxt
+          ? `<span class="ts-inj ${isOut ? 'out' : 'dtd'}" title="${esc(inj.type || '')} ${esc(inj.comment || '')}">${tagTxt}</span>`
+          : '';
+        return `<div class="ts-row ${cls}">` +
+                 `<span class="ts-name">${esc(p.n)}<span class="ts-pos">${esc(p.p)}</span>${tag}</span>` +
+                 `<span class="ts-ovr">${p.ppg.toFixed(1)}</span>` +
+               `</div>`;
+      }).join('');
+      const so = scoringOut(team);
+      const meta = so && so.points > 0
+        ? `<span class="ts-delta neg">${so.points.toFixed(1)} pts/g out (${Math.round(so.fraction * 100)}%)</span>`
+        : '<span class="ts-delta">full rotation available</span>';
+      return `<div class="ts-head"><span class="ts-team">${esc(teamName(team))}</span>` +
+             `<span class="ts-form">PPG</span></div>` +
+             `<div class="ts-meta">${meta}</div>` + body;
+    }
+
+    function renderRosters() {
+      const sec = document.getElementById('roster-section');
+      if (!sec) return;
+      const home = homeSelect.value, away = awaySelect.value;
+      const hasData = ROSTERS && ROSTERS.teams &&
+                      (ROSTERS.teams[home] || ROSTERS.teams[away]);
+      if (!hasData) { sec.style.display = 'none'; return; }
+      sec.style.display = '';
+      document.getElementById('roster-away').innerHTML = rosterCol(away);
+      document.getElementById('roster-home').innerHTML = rosterCol(home);
+      document.getElementById('roster-note').textContent =
+        `${ROSTERS.season - 1}-${String(ROSTERS.season).slice(2)} scoring averages` +
+        (INJURIES ? ' · injuries live from ESPN' : '');
     }
 
     // Live scores (ESPN). Additive only — silent no-op if the feed is down.
@@ -703,10 +842,27 @@
       <i>rejected</i> — it scored 0.6101, slightly worse than Elo alone, so only the
       back-to-back flag survives. The toolbar toggles let you override it.
       <br><br>
+      <b>Player availability.</b> A rating built from past results cannot know that tonight's
+      leading scorer is sitting out, so the model asks a narrow question: what share of a team's
+      usual scoring is unavailable? Measured by <code>nba_players.py</code> across
+      <b>2,672 games</b> of box scores, with betas cross-fitted so no game is scored by a beta that
+      saw it, this is the most valuable signal on the site — <b>0.6068 → 0.5995</b> log-loss and
+      <b>67.0% → 67.6%</b>, with both folds agreeing closely (+1.70/+1.80). For comparison, the
+      equivalent test on the EPL tab found squad ratings worth 24× less, which is what you would
+      expect when one basketball starter is a fifth of the floor and one footballer is a eleventh
+      of the pitch.
+      <br><br>
+      Two honest caveats. The backtest knew exactly who played; ahead of tip-off you only have an
+      injury report, so the live effect is <i>smaller</i> than the measured one. And only players
+      listed <b>Out</b> count — most of the league's listings are <b>Day-To-Day</b> and most of
+      those players suit up, so counting them would badly overstate absences. They are shown in the
+      rotation panel but excluded from the maths, which makes the adjustment conservative: an
+      unlisted late scratch simply leaves the number where Elo had it.
+      <br><br>
       <b>How accurate is it?</b> K=${K}, home advantage and offseason regression were grid-searched
       on seasons through 2024, then scored on <b>2,777 games</b> from 2025 onward that the tuning
       never saw: <b>66.5%</b> correct at 0.6099 log-loss, rising to <b>67.0%</b> with the
-      back-to-back term. Always picking the home team gets 55.0%. Dropping the margin-of-victory
+      back-to-back term and <b>67.6%</b> once availability is included. Always picking the home team gets 55.0%. Dropping the margin-of-victory
       multiplier costs about half a point of accuracy (66.1%). The probabilities are also
       well calibrated — games it calls at 65% are won 65.5% of the time, and at 75%, 77.0%.
       <br><br>
@@ -719,7 +875,10 @@
       answers one date range per request and five seasons is ~90 of them. That feed also carries
       preseason exhibitions against European and Australian clubs plus All-Star squads; the build
       script drops anything not between two of the 30 franchises, since beating Real Madrid in
-      October should not move a team's rating. The upcoming schedule and
+      October should not move a team's rating. Scoring averages come from
+      <code>nba-players.json</code> (box-score averages joined to roster names — the box score
+      carries only athlete ids and the roster carries no statistics, so neither works alone), and
+      injury status is one league-wide ESPN request refreshed at load. The upcoming schedule and
       live scores come from that same feed at page load. Run <code>nba_model.py</code> to reproduce
       the calibration.`;
 
@@ -734,6 +893,8 @@
     render();
     renderWeekList();
     refreshLive();
+    // Player data is additive: the page is fully usable before it lands.
+    Promise.all([loadPlayers(), loadInjuries()]).then(render);
     setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive(); });
     loadingEl.style.display = 'none';

@@ -10,6 +10,10 @@
  *      state: 'pre' | 'in' | 'post'
  *      home/away are already normalised to the keys each tab's model uses.
  *
+ *   Live.injuries(league)  ->  { teamDisplayName: [{ name, pos, status, ... }] }
+ *      One league-wide request. Injury status is published days ahead, so
+ *      unlike a football lineup it can inform a prediction.
+ *
  *   Live.lastLineup(league, club)  ->  { names, date, opponent, formation }
  *      The last XI a club actually fielded — the stand-in for a fixture whose
  *      real lineup ESPN has not published yet.
@@ -239,6 +243,54 @@
     return { goals, feed, lineups };
   }
 
+  /* ── Injuries ──────────────────────────────────────────────────────────
+   *
+   * ESPN publishes one league-wide injury document, so this is a single
+   * request for every team rather than one per club. Unlike football lineups —
+   * which only appear about an hour before kickoff — injury status is posted
+   * days ahead, which is what makes it usable for a prediction rather than
+   * only for a post-mortem.
+   *
+   * Keyed by the team's displayName, because that is what the feed gives; the
+   * caller maps it onto whatever key its model uses.
+   *
+   *   -> { 'Boston Celtics': [{ name, pos, status, type, comment }] }
+   */
+  let injuryCache = null;
+
+  async function injuries(league) {
+    const path = PATHS[league];
+    if (!path) return {};
+    if (injuryCache) return injuryCache;
+    try {
+      const r = await fetch(`${ESPN}/${path}/injuries`, { cache: 'no-store' });
+      if (!r.ok) return {};
+      const d = await r.json();
+      const out = Object.create(null);
+      for (const t of (d.injuries || [])) {
+        const rows = [];
+        for (const x of (t.injuries || [])) {
+          const ath = x.athlete || {};
+          const name = ath.displayName;
+          if (!name) continue;
+          rows.push({
+            name,
+            pos: (ath.position && ath.position.abbreviation) || '',
+            status: x.status || '',
+            type: (x.details && x.details.type) || '',
+            returnDate: (x.details && x.details.returnDate) || '',
+            comment: x.shortComment || ''
+          });
+        }
+        if (t.displayName && rows.length) out[t.displayName] = rows;
+      }
+      injuryCache = out;
+      return out;
+    } catch (e) {
+      return {};
+    }
+  }
+
   /* ── Expected XI ───────────────────────────────────────────────────────
    *
    * ESPN only publishes a lineup near kickoff, so a fixture days out has no
@@ -330,5 +382,5 @@
     return (await detail(league, eventId, rawHome)).goals;
   }
 
-  global.Live = { fetch: fetchLive, winProb, minsLeft, timeline, detail, lastLineup };
+  global.Live = { fetch: fetchLive, winProb, minsLeft, timeline, detail, lastLineup, injuries };
 })(window);

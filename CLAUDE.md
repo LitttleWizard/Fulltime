@@ -10,9 +10,10 @@ scripts that bake data files.
   trend chart. Data: `openfootball/football.json`, fetched live.
 - **NFL** (`nfl.html`) — Elo with a margin-of-victory multiplier. Data: nflverse
   `games.csv` (1999–present), fetched live. Constants calibrated by `nfl_model.py`.
-- **NBA** (`nba.html`) — Elo with 538's NBA margin multiplier, plus a
-  back-to-back adjustment. Data baked into `nba-games.json` by `build_nba.py`;
-  schedule and live scores from ESPN at runtime. Calibrated by `nba_model.py`.
+- **NBA** (`nba.html`) — Elo with 538's NBA margin multiplier, plus back-to-back
+  and player-availability adjustments. Data baked into `nba-games.json` by
+  `build_nba.py` and `nba-players.json` by `build_nba_players.py`; schedule,
+  live scores and injuries from ESPN at runtime. Calibrated by `nba_model.py`.
 
 `terminal.css` holds the shared terminal-style layout used by both pages; keep page
 files free of layout CSS so the two tabs can't drift apart.
@@ -41,6 +42,13 @@ override the tab label with `data-mtab` / `data-mtab-icon` (the log tab does).
   abbreviation. `build_nba.py` keeps only games between two of the 30 franchises
   it resolves from `/teams` — without that filter, beating Real Madrid in
   October moves a team's Elo, and the team picker shows 52 teams.
+- **NBA injuries are usable, football lineups are not.** ESPN posts NBA injury
+  status days ahead (one league-wide `/injuries` request), so it can inform a
+  prediction. Football lineups only appear ~1h before kickoff, which is why the
+  EPL team sheet falls back to each club's last XI. Count only players listed
+  `Out`: most listings are `Day-To-Day` and most of those play.
+- **The injuries feed carries no athlete id** and keys teams by display name, so
+  joining it to `nba-players.json` is name matching against the abbreviation map.
 - **hoopR-data stops at 2023 and FiveThirtyEight's `nba_elo` files are gone**, so
   ESPN is currently the only NBA source that is both current and CORS-open.
 - **`nflreadpy` needs Python ≥3.10** and isn't used here — it's a wrapper over the same
@@ -80,7 +88,7 @@ but negligible in size. Don't talk it up; the page states the number.
 ## Measuring accuracy
 
 Report **held-out** numbers, never the tuning-era ones — they differ materially. Current
-honest figures: EPL 50.4% (market 51.9%), NFL 64.3% (market 67.9%), NBA 67.0%
+honest figures: EPL 50.4% (market 51.9%), NFL 64.3% (market 67.9%), NBA 67.6%
 (vs 55.0% for always picking the home side).
 
 - `evaluate.py` — EPL honest evaluation vs baselines and the betting market
@@ -88,6 +96,9 @@ honest figures: EPL 50.4% (market 51.9%), NFL 64.3% (market 67.9%), NBA 67.0%
 - `nfl_model.py` — NFL calibration + evaluation
 - `nba_model.py` — NBA Elo grid search + honest holdout evaluation
 - `nba_features.py` — tests NBA rest signals; back-to-back kept, rest-days rejected
+- `nba_players.py` — tests player availability; the largest measured signal on
+  the site (0.6068 -> 0.5995 log-loss, 67.0% -> 67.6%). Needs `fetch_nba_box.py`
+  to have cached box scores first (~2800 requests, several minutes).
 - `epl_players.py` / `epl_squad.py` — tested EA FC ratings against Dixon-Coles
 - `diagnose.py` — tests candidate signals before building them
 
