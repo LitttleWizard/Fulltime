@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="assets/terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
   <script src="assets/elo.js"></script>
+  <script src="assets/season-sim.js"></script>
   <script src="assets/dixon-coles.js"></script>
   <script src="assets/live.js"></script>
   <script src="assets/players.js"></script>
@@ -163,6 +164,15 @@
               </div>
               <div class="h2h-line" id="h2h"></div>
             </div>
+          </div>
+
+          <div class="center-section" id="sim-section" style="display:none;">
+            <div class="sheet-head">
+              <div class="card-title">Season Projection</div>
+              <div class="sheet-note" id="sim-note"></div>
+            </div>
+            <div id="sim-table"></div>
+            <div class="sheet-foot" id="sim-foot"></div>
           </div>
 
           <!-- Team sheet + match feed. Hidden until ESPN publishes a lineup,
@@ -1298,6 +1308,104 @@
       });
     }
 
+    /* ── Season projection ─────────────────────────────────────────────────
+     *
+     * Simulating one match would add nothing — Dixon-Coles enumerates its
+     * scoreline grid exactly. Where a team FINISHES is different: it depends on
+     * every remaining fixture jointly, and there is no closed form for that.
+     *
+     * Each run plays out the rest of the season by sampling a scoreline per
+     * fixture from the fitted expected goals, builds the table, and records
+     * where everyone came. Ratings are held fixed within a run — they would
+     * drift in reality, but that drift is small next to the spread the
+     * simulation is measuring.
+     */
+    const SIM_RUNS = 4000;
+    let simResult = null;
+
+    function currentStandings() {
+      const table = Object.create(null);
+      for (const t of teams) {
+        table[t] = { pts: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, played: 0 };
+      }
+      for (const m of currentSeason.matches) {
+        const ft = finalScore(m);
+        if (!ft) continue;
+        const H = table[m.team1], A = table[m.team2];
+        if (!H || !A) continue;
+        const [hg, ag] = ft;
+        H.gf += hg; H.ga += ag; A.gf += ag; A.ga += hg;
+        H.played++; A.played++;
+        if (hg > ag) { H.pts += 3; H.w++; A.l++; }
+        else if (hg < ag) { A.pts += 3; A.w++; H.l++; }
+        else { H.pts++; A.pts++; H.d++; A.d++; }
+      }
+      return table;
+    }
+
+    function runSeasonSim() {
+      if (!dcModel || !teams.length) return null;
+      const fixtures = upcomingFixtures.map(m => ({ home: m.team1, away: m.team2 }));
+      const lam = Object.create(null);
+      const lambdasFor = (h, a) => {
+        const key = h + '|' + a;
+        if (!lam[key]) {
+          const l = DixonColes.lambdas(dcModel, h, a);
+          lam[key] = { lh: l.lh ?? l[0], la: l.la ?? l[1] };
+        }
+        return lam[key];
+      };
+      return SeasonSim.run({
+        teams,
+        standings: currentStandings(),
+        fixtures,
+        sims: SIM_RUNS,
+        sample: (h, a) => {
+          const l = lambdasFor(h, a);
+          return { hg: SeasonSim.poisson(l.lh), ag: SeasonSim.poisson(l.la) };
+        },
+        // Premier League order: points, then goal difference, then goals scored
+        sortKey: r => [r.pts, r.gf - r.ga, r.gf]
+      });
+    }
+
+    function renderSeasonSim() {
+      const sec = document.getElementById('sim-section');
+      if (!sec || !simResult) return;
+      const rows = teams.map(t => ({ t, e: simResult[t] }))
+                        .sort((a, b) => a.e.avgPos - b.e.avgPos);
+      const pct = v => v >= 0.995 ? '>99%' : v < 0.005 ? '—' : Math.round(v * 100) + '%';
+      const cell = (v, cls) => `<span class="sim-p ${v >= 0.5 ? 'strong' : ''} ${cls}">${pct(v)}</span>`;
+
+      sec.style.display = '';
+      document.getElementById('sim-table').innerHTML =
+        `<div class="sim-row sim-head">
+           <span>Club</span><span>Pts</span><span>Title</span>
+           <span>Top 4</span><span>Relegated</span>
+         </div>` +
+        rows.map(({ t, e }) => {
+          const title = SeasonSim.inRange(e, 1, 1);
+          const top4 = SeasonSim.inRange(e, 1, 4);
+          const rel = SeasonSim.inRange(e, teams.length - 2, teams.length);
+          const sel = t === homeSelect.value || t === awaySelect.value;
+          return `<div class="sim-row${sel ? ' is-sel' : ''}">
+            <span class="sim-team">${esc(t)}</span>
+            <span class="sim-pts">${e.avgPts.toFixed(0)}</span>
+            ${cell(title, 'title')}${cell(top4, 'top4')}${cell(rel, 'rel')}
+          </div>`;
+        }).join('');
+
+      const played = Object.values(currentStandings())
+        .reduce((n, r) => n + r.played, 0) / 2;
+      document.getElementById('sim-note').textContent =
+        `${SIM_RUNS.toLocaleString()} simulated seasons`;
+      document.getElementById('sim-foot').textContent =
+        `${played} matches played, ${upcomingFixtures.length} remaining. Each run samples a ` +
+        `scoreline for every remaining fixture from the fitted expected goals, then builds the ` +
+        `table on points, goal difference and goals scored. Ratings are held fixed within a run. ` +
+        `Early in a season these are wide by nature — that width is the honest answer, not a defect.`;
+    }
+
     // Methodology footer
     const shotsGenerated = shotsData ? shotsData.generated : null;
     document.getElementById('methodology').innerHTML = `
@@ -1350,6 +1458,12 @@
 
     render();
     renderWeekList();
+    // Simulation is heavy enough to keep off the critical path; the page is
+    // fully usable before it lands.
+    setTimeout(() => {
+      try { simResult = runSeasonSim(); renderSeasonSim(); }
+      catch (e) { /* projection is additive; never break the page for it */ }
+    }, 0);
     // Live scores load after first paint and refresh while the tab is visible.
     // Player ratings are optional: if the file fails to load, `Players.xi`
     // returns null, the team sheet stays hidden and everything else is

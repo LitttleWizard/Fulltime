@@ -1327,3 +1327,31 @@
 .proj-note {
   margin-top: 5px; font-size: 10.5px; color: var(--muted); font-style: italic;
 }
+
+/* ── Season projection table ────────────────────────────────────────────── */
+.sim-row {
+  display: grid; grid-template-columns: 1fr 42px 52px 52px 68px;
+  align-items: center; gap: 8px;
+  padding: 4px 0; font-size: 12px;
+  border-bottom: 1px solid var(--grid-line);
+}
+.sim-row:last-child { border-bottom: 0; }
+.sim-row.sim-head {
+  font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+.sim-row.sim-head span:not(:first-child),
+.sim-pts, .sim-p { text-align: right; font-variant-numeric: tabular-nums; }
+.sim-team { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.sim-pts { color: var(--muted); }
+.sim-p { color: var(--muted); }
+.sim-p.strong { color: var(--text); font-weight: 600; }
+.sim-p.title.strong { color: var(--brand); }
+.sim-p.rel.strong { color: var(--down); }
+.sim-row.is-sel { background: var(--surface2); }
+.sim-row.is-sel .sim-team { font-weight: 600; }
+
+@media (max-width: 700px) {
+  .sim-row { grid-template-columns: 1fr 34px 46px 46px 58px; font-size: 11.5px; gap: 6px; }
+}
