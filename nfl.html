@@ -17,6 +17,7 @@
   <!-- not deferred: the inline page script constructs TrendChart directly -->
   <script src="assets/elo.js"></script>
   <script src="assets/match-sim.js"></script>
+  <script src="assets/kalshi.js"></script>
   <script src="assets/terminal-ui.js"></script>
   <script src="assets/live.js"></script>
   <script src="assets/trend-chart.js"></script>
@@ -149,6 +150,18 @@
               <div class="chart-legend" id="metric-legend"></div>
               <div id="metric-bars"></div>
             </div>
+          </div>
+
+          <!-- Teams you are tracking, with the model's number beside the
+               market's. Read-only: this places no trades and never sees an
+               account — the list lives in this browser only. -->
+          <div class="center-section" id="track-section" style="display:none;">
+            <div class="sheet-head">
+              <div class="card-title">Tracked Teams</div>
+              <div class="sheet-note" id="track-note"></div>
+            </div>
+            <div id="track-rows"></div>
+            <div class="sheet-foot" id="track-foot"></div>
           </div>
 
           <div class="center-section" id="cont-section" style="display:none;">
@@ -731,6 +744,7 @@
       const home = homeSelect.value, away = awaySelect.value;
       const el = document.getElementById('watchlist');
       const next = nextByTeam();
+      const trackedSet = Kalshi.tracked('nfl');
       const todayStr = new Date().toISOString().slice(0, 10);
       // Position within the league's actual spread — a bare rating doesn't say
       // whether it is remarkable.
@@ -748,8 +762,12 @@
         const isToday = nx && nx.date === todayStr;
         const nxTxt = nx ? `${nx.home ? 'vs' : '@'} ${nx.opp}${isToday ? '' : ' · ' + nx.date.slice(5)}` : '';
         const pos = ((r.rating - lo) / span) * 100;
+        const isTracked = trackedSet.has(r.team);
         return `
           <div class="wl-row ${rowCls}" data-team="${r.team}" tabindex="0" role="button">
+            <button type="button" class="wl-star${isTracked ? ' on' : ''}" data-star="${r.team}"
+                    aria-pressed="${isTracked}"
+                    title="${isTracked ? 'Stop tracking' : 'Track this team'}">${isTracked ? '★' : '☆'}</button>
             <div class="wl-name">
               <span class="n">${teamName(r.team)}</span>
               <span class="wl-meta">
@@ -765,6 +783,14 @@
             </div>
           </div>`;
       }).join('');
+      el.querySelectorAll('.wl-star').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();          // starring is not selecting
+          Kalshi.toggle('nfl', btn.getAttribute('data-star'));
+          renderWatchlist();
+          renderTracked();
+        });
+      });
       el.querySelectorAll('.wl-row').forEach(row => {
         const go = () => { awaySelect.value = row.getAttribute('data-team'); selectedFixture = null; render(); };
         row.addEventListener('click', go);
@@ -1020,6 +1046,91 @@
           `vanishes afterwards, so it is not applied to this game.`;
     }
 
+    /* ── Tracked teams vs the market ───────────────────────────────────────
+     *
+     * Starring a team stores it in this browser's localStorage — nothing is
+     * uploaded and Kalshi is never told. Prices come from the read-only proxy
+     * in /api/kalshi; a market's yes-price in cents doubles as an implied
+     * probability, which is what makes it comparable to the model's number.
+     *
+     * The gap between the two is the only column that matters: it is where the
+     * model disagrees with the people with money on it. The model beats the
+     * market on neither league historically (64.6% vs 67.9% on NFL), so a
+     * large gap is at least as likely to be the model's error as an edge.
+     */
+    let kalshiData = null;
+
+    async function refreshKalshi() {
+      kalshiData = await Kalshi.prices('nfl');
+      renderTracked();
+    }
+
+    function renderTracked() {
+      const sec = document.getElementById('track-section');
+      if (!sec) return;
+      const set = Kalshi.tracked('nfl');
+      if (!set.size) {
+        sec.style.display = '';
+        document.getElementById('track-rows').innerHTML =
+          '<div class="moves-empty">No teams tracked. Use the ☆ on a watchlist row to follow one.</div>';
+        document.getElementById('track-note').textContent = '';
+        document.getElementById('track-foot').textContent = '';
+        return;
+      }
+      sec.style.display = '';
+
+      // next scheduled game for each tracked team
+      const rows = [];
+      for (const team of set) {
+        const g = upcoming.find(x => x.home === team || x.away === team);
+        if (!g) { rows.push({ team, none: true }); continue; }
+        const p = predict(elo, g.home, g.away, null, g);
+        const isHome = g.home === team;
+        const model = isHome ? p.homeWin : p.awayWin;
+        const market = kalshiData
+          ? Kalshi.impliedFor(kalshiData, 'nfl', g.date, g.home, g.away, team)
+          : null;
+        rows.push({ team, g, isHome, model, market,
+                    gap: market == null ? null : model - market });
+      }
+      rows.sort((a, b) => Math.abs(b.gap ?? -1) - Math.abs(a.gap ?? -1));
+
+      const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
+      document.getElementById('track-rows').innerHTML =
+        `<div class="track-row track-head">
+           <span>Team</span><span>Next</span><span>Model</span><span>Market</span><span>Gap</span>
+         </div>` +
+        rows.map(r => {
+          if (r.none) {
+            return `<div class="track-row"><span class="track-team">${esc(teamName(r.team))}</span>` +
+                   `<span class="track-next">no scheduled game</span>` +
+                   `<span></span><span></span><span></span></div>`;
+          }
+          const opp = r.isHome ? r.g.away : r.g.home;
+          const gapCls = r.gap == null ? '' : (r.gap > 0.05 ? 'pos' : r.gap < -0.05 ? 'neg' : '');
+          return `<div class="track-row">
+            <span class="track-team">${esc(teamName(r.team))}</span>
+            <span class="track-next">${r.isHome ? 'vs' : '@'} ${esc(opp)} · ${esc(r.g.date.slice(5))}</span>
+            <span class="track-v">${pct(r.model)}</span>
+            <span class="track-v">${pct(r.market)}</span>
+            <span class="track-gap ${gapCls}">${r.gap == null ? '—' :
+              (r.gap >= 0 ? '+' : '') + Math.round(r.gap * 100)}</span>
+          </div>`;
+        }).join('');
+
+      const priced = rows.filter(r => r.market != null).length;
+      document.getElementById('track-note').textContent = kalshiData
+        ? `Kalshi · ${priced}/${rows.length} priced`
+        : 'Kalshi prices unavailable';
+      document.getElementById('track-foot').innerHTML =
+        'Market prices are Kalshi mid-book, read-only — this page places no trades and never ' +
+        'sees an account, and your tracked list stays in this browser. Most games do not open ' +
+        'for trading until close to kickoff, so an empty market column is normal. ' +
+        '<b>Gap</b> is model minus market: where they disagree. Worth remembering the model ' +
+        'does not beat the market historically (64.6% against 67.9% on the same games), so a ' +
+        'large gap is at least as likely to be the model being wrong.';
+    }
+
     // Live scores (ESPN). Additive only — silent no-op if the feed is down.
     let liveByKey = Object.create(null);
     const liveKey = (h, a) => `${h}|${a}`;
@@ -1167,6 +1278,10 @@
     refreshLive();
     // Simulation data is additive; the page is complete without it.
     MatchSim.ready().then(d => { if (d) { simReady = true; render(); } });
+    // Market prices are additive and may be unavailable; the page never waits.
+    renderTracked();
+    refreshKalshi();
+    setInterval(() => { if (!document.hidden) refreshKalshi(); }, 120000);
     setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive(); });
     loadingEl.style.display = 'none';
