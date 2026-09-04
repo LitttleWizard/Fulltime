@@ -103,6 +103,64 @@
     return cents == null ? null : Math.min(Math.max(cents / 100, 0), 1);
   }
 
+  /* ── positions you have entered (this browser only) ─────────────────
+   *
+   * Kalshi's portfolio endpoints need an API key, and that same key can place
+   * orders. Holding one in a browser would put a trading credential behind
+   * nothing but localStorage — any extension, any XSS, anyone at the machine.
+   * So positions are entered by hand instead. Less convenient, and the only
+   * version worth shipping.
+   *
+   * A position is a fixture plus an outcome, not just a team: football settles
+   * three ways and a draw is a position you can hold. Stored as
+   *   { date, home, away, side, contracts, price }
+   * where side is a team code/name or 'tie', and price is in cents (1-99).
+   */
+  const POS_KEY = l => `fulltime-positions-${l}`;
+
+  function positions(league) {
+    try {
+      const raw = localStorage.getItem(POS_KEY(league));
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+
+  function savePositions(league, list) {
+    try { localStorage.setItem(POS_KEY(league), JSON.stringify(list)); }
+    catch (e) { /* private mode */ }
+    return list;
+  }
+
+  function addPosition(league, p) {
+    const list = positions(league);
+    list.push({
+      id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      date: p.date || '', home: p.home || '', away: p.away || '',
+      side: p.side || p.home || '',        // team, or 'tie' for a draw
+      contracts: Math.max(1, Math.round(Number(p.contracts) || 1)),
+      price: Math.min(99, Math.max(1, Math.round(Number(p.price) || 50))),
+      added: new Date().toISOString().slice(0, 10)
+    });
+    return savePositions(league, list);
+  }
+
+  function removePosition(league, id) {
+    return savePositions(league, positions(league).filter(x => x.id !== id));
+  }
+
+  /**
+   * Mark a position against the current market.
+   * Contracts settle at 100 or 0, so value is contracts x price in cents.
+   */
+  function markToMarket(pos, marketProb) {
+    const cost = pos.contracts * pos.price;
+    if (marketProb == null) return { cost, value: null, pl: null };
+    const nowCents = Math.round(marketProb * 100);
+    const value = pos.contracts * nowCents;
+    return { cost, value, pl: value - cost };
+  }
+
   /* ── tracking list (this browser only) ─────────────────────────────── */
   const KEY = l => `fulltime-tracked-${l}`;
 
@@ -121,5 +179,8 @@
     return s;
   }
 
-  global.Kalshi = { prices, impliedFor, gameKey, code, tracked, toggle, SERIES };
+  global.Kalshi = {
+    prices, impliedFor, gameKey, code, tracked, toggle, SERIES,
+    positions, addPosition, removePosition, markToMarket
+  };
 })(window);

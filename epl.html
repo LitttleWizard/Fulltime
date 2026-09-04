@@ -17,6 +17,7 @@
   <!-- not deferred: the inline page script constructs TrendChart directly -->
   <script src="assets/elo.js"></script>
   <script src="assets/season-sim.js"></script>
+  <script src="assets/kalshi.js"></script>
   <script src="assets/dixon-coles.js"></script>
   <script src="assets/live.js"></script>
   <script src="assets/players.js"></script>
@@ -164,6 +165,26 @@
               </div>
               <div class="h2h-line" id="h2h"></div>
             </div>
+          </div>
+
+          <!-- Positions you have entered, against the model and the market.
+               Read-only: no account access, no trading. -->
+          <div class="center-section" id="track-section">
+            <div class="sheet-head">
+              <div class="card-title">My Positions</div>
+              <div class="sheet-note" id="track-note"></div>
+            </div>
+            <form class="pos-form" id="pos-form" autocomplete="off">
+              <select id="pos-fixture" aria-label="Fixture"></select>
+              <select id="pos-side" aria-label="Outcome"></select>
+              <input id="pos-contracts" type="number" min="1" max="10000" step="1"
+                     value="10" aria-label="Contracts" title="Contracts" />
+              <input id="pos-price" type="number" min="1" max="99" step="1"
+                     value="50" aria-label="Price in cents" title="Price paid, in cents" />
+              <button type="submit" class="tb-btn">Add</button>
+            </form>
+            <div id="track-rows"></div>
+            <div class="sheet-foot" id="track-foot"></div>
           </div>
 
           <!-- Team sheet + match feed. Hidden until ESPN publishes a lineup,
@@ -1406,6 +1427,134 @@
         `Early in a season these are wide by nature — that width is the honest answer, not a defect.`;
     }
 
+    /* ── Positions against the model and the market ────────────────────────
+     *
+     * Football settles three ways, so a position is a FIXTURE plus an OUTCOME,
+     * not just a team — a draw is something you can hold.
+     *
+     * Kalshi's portfolio API needs a key that can also place orders, so this
+     * page never asks for one and cannot see an account. Positions are typed in
+     * and stay in this browser. Nothing here places, cancels or sizes a trade.
+     */
+    let kalshiData = null;
+
+    async function refreshKalshi() {
+      kalshiData = await Kalshi.prices('epl');
+      renderPositions();
+    }
+
+    const money = c => (c / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+
+    function sideLabel(p) {
+      return p.side === 'tie' ? 'Draw' : p.side;
+    }
+
+    function modelFor(m, side) {
+      const pr = predict(elo.ratings, elo.history, shotsData, leagueAvg, m.team1, m.team2);
+      if (side === 'tie') return pr.draw;
+      return side === m.team1 ? pr.homeWin : pr.awayWin;
+    }
+
+    function renderPositions() {
+      const rowsEl = document.getElementById('track-rows');
+      if (!rowsEl) return;
+      const list = Kalshi.positions('epl');
+      if (!list.length) {
+        rowsEl.innerHTML = '<div class="moves-empty">No positions yet. Pick a fixture and an ' +
+                           'outcome above, enter how many contracts and what you paid.</div>';
+        document.getElementById('track-note').textContent =
+          kalshiData ? 'Kalshi connected' : 'Kalshi prices unavailable';
+        document.getElementById('track-foot').innerHTML = FOOT;
+        return;
+      }
+
+      let cost = 0, value = 0, priced = 0;
+      const rows = list.map(p => {
+        const m = upcomingFixtures.find(f => f.date === p.date && f.team1 === p.home && f.team2 === p.away);
+        const model = m ? modelFor(m, p.side) : null;
+        const market = kalshiData
+          ? Kalshi.impliedFor(kalshiData, 'epl', p.date, p.home, p.away, p.side) : null;
+        const mtm = Kalshi.markToMarket(p, market);
+        cost += mtm.cost;
+        if (mtm.value != null) { value += mtm.value; priced++; }
+        return { p, model, market, mtm, live: !!m };
+      });
+
+      const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
+      rowsEl.innerHTML =
+        `<div class="pos-row pos-head">
+           <span>Position</span><span>Fixture</span><span>Model</span>
+           <span>Market</span><span>P/L</span><span></span>
+         </div>` +
+        rows.map(r => {
+          const pl = r.mtm.pl == null
+            ? '<span class="pos-pl">—</span>'
+            : `<span class="pos-pl ${r.mtm.pl >= 0 ? 'pos' : 'neg'}">${r.mtm.pl >= 0 ? '+' : ''}${money(r.mtm.pl)}</span>`;
+          return `<div class="pos-row">
+            <span class="pos-team">${esc(sideLabel(r.p))}<span class="pos-held">${r.p.contracts} @ ${r.p.price}¢ · ${money(r.mtm.cost)}</span></span>
+            <span class="pos-next">${esc(r.p.home)} v ${esc(r.p.away)} · ${esc(r.p.date.slice(5))}</span>
+            <span class="pos-v">${pct(r.model)}</span>
+            <span class="pos-v">${pct(r.market)}</span>
+            ${pl}
+            <span><button type="button" class="pos-del" data-del="${r.p.id}"
+                    title="Remove position" aria-label="Remove position">×</button></span>
+          </div>`;
+        }).join('');
+
+      document.getElementById('track-note').textContent =
+        `${list.length} position${list.length > 1 ? 's' : ''} · ${money(cost)} staked` +
+        (priced ? ` · now ${money(value)}` : ' · not yet priced');
+      document.getElementById('track-foot').innerHTML = FOOT;
+
+      rowsEl.querySelectorAll('.pos-del').forEach(b => {
+        b.addEventListener('click', () => {
+          Kalshi.removePosition('epl', b.getAttribute('data-del'));
+          renderPositions();
+        });
+      });
+    }
+
+    const FOOT =
+      'Positions are entered by hand and stay in this browser. Kalshi\'s portfolio API needs an ' +
+      'API key that <b>can also place orders</b>, so this page never asks for one and cannot see ' +
+      'your account — nothing here places, cancels or sizes a trade.' +
+      '<br><br>Market prices are Kalshi mid-book, read-only, and a contract settles at 100¢ or 0¢ ' +
+      '— so P/L marks what the book says now, not a final result. Most fixtures do not open for ' +
+      'trading until close to kick-off, so an empty market column is normal. The model does not ' +
+      'beat the market historically (50.4% against 51.9% on the same matches), so treat a gap as ' +
+      'at least as likely to be the model\'s error as an edge.';
+
+    (function wirePositionForm() {
+      const fx = document.getElementById('pos-fixture');
+      const side = document.getElementById('pos-side');
+      const form = document.getElementById('pos-form');
+      if (!fx || !form) return;
+      upcomingFixtures.slice(0, 60).forEach((m, i) => {
+        fx.appendChild(new Option(`${m.date.slice(5)} — ${m.team1} v ${m.team2}`, i));
+      });
+      const syncSides = () => {
+        const m = upcomingFixtures[Number(fx.value) || 0];
+        side.innerHTML = '';
+        if (!m) return;
+        side.appendChild(new Option(m.team1 + ' win', m.team1));
+        side.appendChild(new Option('Draw', 'tie'));
+        side.appendChild(new Option(m.team2 + ' win', m.team2));
+      };
+      fx.addEventListener('change', syncSides);
+      syncSides();
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        const m = upcomingFixtures[Number(fx.value) || 0];
+        if (!m) return;
+        Kalshi.addPosition('epl', {
+          date: m.date, home: m.team1, away: m.team2, side: side.value,
+          contracts: document.getElementById('pos-contracts').value,
+          price: document.getElementById('pos-price').value
+        });
+        renderPositions();
+      });
+    })();
+
     // Methodology footer
     const shotsGenerated = shotsData ? shotsData.generated : null;
     document.getElementById('methodology').innerHTML = `
@@ -1458,6 +1607,9 @@
 
     render();
     renderWeekList();
+    renderPositions();
+    refreshKalshi();
+    setInterval(() => { if (!document.hidden) refreshKalshi(); }, 120000);
     // Simulation is heavy enough to keep off the critical path; the page is
     // fully usable before it lands.
     setTimeout(() => {

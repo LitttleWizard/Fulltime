@@ -157,9 +157,17 @@
                account — the list lives in this browser only. -->
           <div class="center-section" id="track-section" style="display:none;">
             <div class="sheet-head">
-              <div class="card-title">Tracked Teams</div>
+              <div class="card-title">My Positions</div>
               <div class="sheet-note" id="track-note"></div>
             </div>
+            <form class="pos-form" id="pos-form" autocomplete="off">
+              <select id="pos-team" aria-label="Team"></select>
+              <input id="pos-contracts" type="number" min="1" max="10000" step="1"
+                     value="10" aria-label="Contracts" title="Contracts" />
+              <input id="pos-price" type="number" min="1" max="99" step="1"
+                     value="50" aria-label="Price in cents" title="Price paid, in cents" />
+              <button type="submit" class="tb-btn">Add</button>
+            </form>
             <div id="track-rows"></div>
             <div class="sheet-foot" id="track-foot"></div>
           </div>
@@ -1068,68 +1076,90 @@
     function renderTracked() {
       const sec = document.getElementById('track-section');
       if (!sec) return;
-      const set = Kalshi.tracked('nfl');
-      if (!set.size) {
-        sec.style.display = '';
-        document.getElementById('track-rows').innerHTML =
-          '<div class="moves-empty">No teams tracked. Use the ☆ on a watchlist row to follow one.</div>';
-        document.getElementById('track-note').textContent = '';
-        document.getElementById('track-foot').textContent = '';
-        return;
-      }
       sec.style.display = '';
 
-      // next scheduled game for each tracked team
-      const rows = [];
-      for (const team of set) {
-        const g = upcoming.find(x => x.home === team || x.away === team);
-        if (!g) { rows.push({ team, none: true }); continue; }
-        const p = predict(elo, g.home, g.away, null, g);
-        const isHome = g.home === team;
-        const model = isHome ? p.homeWin : p.awayWin;
-        const market = kalshiData
-          ? Kalshi.impliedFor(kalshiData, 'nfl', g.date, g.home, g.away, team)
-          : null;
-        rows.push({ team, g, isHome, model, market,
-                    gap: market == null ? null : model - market });
+      const posList = Kalshi.positions('nfl');
+      const starred = Kalshi.tracked('nfl');
+      // a position is stored as fixture + outcome; `side` is the team backed
+      const shown = posList.map(p => ({ pos: p, team: p.side }))
+        .concat([...starred].filter(t => !posList.some(p => p.side === t))
+                            .map(t => ({ pos: null, team: t })));
+
+      if (!shown.length) {
+        document.getElementById('track-rows').innerHTML =
+          '<div class="moves-empty">Add a position above, or use the ☆ on a watchlist row to ' +
+          'follow a team without one.</div>';
+        document.getElementById('track-note').textContent = '';
+        document.getElementById('track-foot').innerHTML = FOOT;
+        return;
       }
-      rows.sort((a, b) => Math.abs(b.gap ?? -1) - Math.abs(a.gap ?? -1));
+
+      let totCost = 0, totValue = 0, anyPriced = false;
+      const rows = shown.map(({ pos, team }) => {
+        const g = upcoming.find(x => x.home === team || x.away === team);
+        const isHome = g && g.home === team;
+        const model = g ? (isHome ? predict(elo, g.home, g.away, null, g).homeWin
+                                  : predict(elo, g.home, g.away, null, g).awayWin) : null;
+        const market = (g && kalshiData)
+          ? Kalshi.impliedFor(kalshiData, 'nfl', g.date, g.home, g.away, team) : null;
+        const mtm = pos ? Kalshi.markToMarket(pos, market) : null;
+        if (mtm) { totCost += mtm.cost; if (mtm.value != null) { totValue += mtm.value; anyPriced = true; } }
+        return { pos, team, g, isHome, model, market, mtm };
+      }).sort((a, b) => (b.pos ? 1 : 0) - (a.pos ? 1 : 0));
 
       const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
+      const money = c => (c / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+
       document.getElementById('track-rows').innerHTML =
-        `<div class="track-row track-head">
-           <span>Team</span><span>Next</span><span>Model</span><span>Market</span><span>Gap</span>
+        `<div class="pos-row pos-head">
+           <span>Position</span><span>Next game</span><span>Model</span>
+           <span>Market</span><span>P/L</span><span></span>
          </div>` +
         rows.map(r => {
-          if (r.none) {
-            return `<div class="track-row"><span class="track-team">${esc(teamName(r.team))}</span>` +
-                   `<span class="track-next">no scheduled game</span>` +
-                   `<span></span><span></span><span></span></div>`;
-          }
-          const opp = r.isHome ? r.g.away : r.g.home;
-          const gapCls = r.gap == null ? '' : (r.gap > 0.05 ? 'pos' : r.gap < -0.05 ? 'neg' : '');
-          return `<div class="track-row">
-            <span class="track-team">${esc(teamName(r.team))}</span>
-            <span class="track-next">${r.isHome ? 'vs' : '@'} ${esc(opp)} · ${esc(r.g.date.slice(5))}</span>
-            <span class="track-v">${pct(r.model)}</span>
-            <span class="track-v">${pct(r.market)}</span>
-            <span class="track-gap ${gapCls}">${r.gap == null ? '—' :
-              (r.gap >= 0 ? '+' : '') + Math.round(r.gap * 100)}</span>
+          const held = r.pos
+            ? `${r.pos.contracts} @ ${r.pos.price}¢`
+            : '<span class="pos-watch">watching</span>';
+          const next = r.g
+            ? `${r.isHome ? 'vs' : '@'} ${esc(r.isHome ? r.g.away : r.g.home)} · ${esc(r.g.date.slice(5))}`
+            : 'no scheduled game';
+          const pl = r.mtm && r.mtm.pl != null
+            ? `<span class="pos-pl ${r.mtm.pl >= 0 ? 'pos' : 'neg'}">${r.mtm.pl >= 0 ? '+' : ''}${money(r.mtm.pl)}</span>`
+            : '<span class="pos-pl">—</span>';
+          return `<div class="pos-row">
+            <span class="pos-team">${esc(teamName(r.team))}<span class="pos-held">${held}</span></span>
+            <span class="pos-next">${next}</span>
+            <span class="pos-v">${pct(r.model)}</span>
+            <span class="pos-v">${pct(r.market)}</span>
+            ${pl}
+            <span>${r.pos ? `<button type="button" class="pos-del" data-del="${r.pos.id}"
+                       title="Remove position" aria-label="Remove position">×</button>` : ''}</span>
           </div>`;
         }).join('');
 
-      const priced = rows.filter(r => r.market != null).length;
-      document.getElementById('track-note').textContent = kalshiData
-        ? `Kalshi · ${priced}/${rows.length} priced`
-        : 'Kalshi prices unavailable';
-      document.getElementById('track-foot').innerHTML =
-        'Market prices are Kalshi mid-book, read-only — this page places no trades and never ' +
-        'sees an account, and your tracked list stays in this browser. Most games do not open ' +
-        'for trading until close to kickoff, so an empty market column is normal. ' +
-        '<b>Gap</b> is model minus market: where they disagree. Worth remembering the model ' +
-        'does not beat the market historically (64.6% against 67.9% on the same games), so a ' +
-        'large gap is at least as likely to be the model being wrong.';
+      const n = posList.length;
+      document.getElementById('track-note').textContent = n
+        ? `${n} position${n > 1 ? 's' : ''} · ${money(totCost)} at risk` +
+          (anyPriced ? ` · now ${money(totValue)}` : ' · not yet priced')
+        : (kalshiData ? 'Kalshi connected' : 'Kalshi prices unavailable');
+      document.getElementById('track-foot').innerHTML = FOOT;
+
+      document.getElementById('track-rows').querySelectorAll('.pos-del').forEach(b => {
+        b.addEventListener('click', () => {
+          Kalshi.removePosition('nfl', b.getAttribute('data-del'));
+          renderTracked();
+        });
+      });
     }
+
+    const FOOT =
+      'Positions are entered by hand and stored in this browser only. Kalshi\'s portfolio API ' +
+      'needs an API key that <b>can also place orders</b> — holding one in a browser would put a ' +
+      'trading credential behind nothing but localStorage, so this page does not ask for one and ' +
+      'cannot see your account. Nothing here places, cancels or sizes a trade.' +
+      '<br><br>Market prices are Kalshi mid-book, read-only. Most games do not open for trading ' +
+      'until close to kickoff, so an empty market column is normal and P/L only marks once a book ' +
+      'exists. The model does not beat the market historically (64.6% against 67.9% on the same ' +
+      'games), so treat a gap as at least as likely to be the model\'s error as an edge.';
 
     // Live scores (ESPN). Additive only — silent no-op if the feed is down.
     let liveByKey = Object.create(null);
@@ -1279,6 +1309,25 @@
     // Simulation data is additive; the page is complete without it.
     MatchSim.ready().then(d => { if (d) { simReady = true; render(); } });
     // Market prices are additive and may be unavailable; the page never waits.
+    (function wirePositionForm() {
+      const sel = document.getElementById('pos-team');
+      const form = document.getElementById('pos-form');
+      if (!sel || !form) return;
+      teams.forEach(t => sel.appendChild(new Option(teamName(t), t)));
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        const t = sel.value;
+        const g = upcoming.find(x => x.home === t || x.away === t);
+        Kalshi.addPosition('nfl', {
+          date: g ? g.date : '', home: g ? g.home : t, away: g ? g.away : '',
+          side: t,
+          contracts: document.getElementById('pos-contracts').value,
+          price: document.getElementById('pos-price').value
+        });
+        renderTracked();
+      });
+    })();
+
     renderTracked();
     refreshKalshi();
     setInterval(() => { if (!document.hidden) refreshKalshi(); }, 120000);
