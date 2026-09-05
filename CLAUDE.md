@@ -183,6 +183,21 @@ Deployed to Vercel via `./deploy.sh` (wraps `vercel --prod`).
 This directory lives inside `~/ui:ux` but is its own git repo and its own Vercel
 project, separate from the personal site — it's gitignored in the parent repo.
 
+## Secrets
+
+**Environment variables only — never a file.** A watcher auto-commits and pushes
+this directory and the repo is public, so a key in a file is published within
+seconds and lives in git history permanently. `.gitignore` blocks the obvious
+patterns (`.env`, `*.pem`, `*secret*.json`, …) as a safety net, not as the rule.
+
+`api/_owner.js` guards anything that can spend money: the browser sends its
+Supabase token, the server asks Supabase whose it is, and only `OWNER_USER_ID`
+passes. It fails closed — unconfigured is 503, not "allow". Read `SECURITY.md`
+before touching `api/`.
+
+The sign-in gate is **not** access control: the site is static, so `/data` is
+public with or without an account. Do not describe it as security.
+
 ## Obsidian memory
 
 This project's history and reasoning live in Obsidian at

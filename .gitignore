@@ -1,9 +1,29 @@
-
-# Intermediate analysis data: 1.4 MB, ~2,800 ESPN requests, rebuildable with
-# fetch_nba_box.py. Only nba_players.py needs it.
 .DS_Store
 .deployrc
 .vercel
-data/.cache/
-data/nba-box.json
 node_modules/
+
+# Intermediate analysis data: 1.4 MB, ~2,800 ESPN requests, rebuildable with
+# fetch_nba_box.py. Only nba_players.py needs it.
+data/nba-box.json
+
+# Snap-count cache for nfl_continuity.py — 41 MB, rebuildable.
+data/.cache/
+
+# ── Secrets ───────────────────────────────────────────────────────────────
+# A watcher auto-commits and pushes this directory, and the repo is public, so
+# a key that lands in a file here is published within seconds and lives in git
+# history permanently. These patterns are the safety net; the actual rule is
+# that secrets belong in Vercel environment variables and nowhere else.
+.env
+.env.*
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+id_rsa*
+*secret*.json
+*credential*.json
+kalshi-key*
+service-role*

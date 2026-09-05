@@ -6,6 +6,7 @@
  * anything.
  */
 import crypto from 'node:crypto';
+import { requireOwner } from './_owner.js';
 
 const HOST = 'https://api.elections.kalshi.com';
 const ALLOWED = { positions: '/trade-api/v2/portfolio/positions',
@@ -22,12 +23,17 @@ function sign(pem, ts, method, path) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
 
   const what = String((req.query && req.query.what) || 'positions');
   const path = ALLOWED[what];
   if (!path) return res.status(400).json({ error: 'unknown resource', allowed: Object.keys(ALLOWED) });
+
+  // Account data is the owner's alone.
+  const gate = await requireOwner(req);
+  if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
 
   const keyId = process.env.KALSHI_KEY_ID;
   const pem = (process.env.KALSHI_PRIVATE_KEY || '').replace(/\\n/g, '\n');

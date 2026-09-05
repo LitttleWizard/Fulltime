@@ -59,6 +59,13 @@
     return loading;
   }
 
+  /** The current access token, for calls the server must authorise. */
+  async function token() {
+    if (!client) return null;
+    const { data } = await client.auth.getSession();
+    return (data && data.session && data.session.access_token) || null;
+  }
+
   function user() {
     if (!session || !session.user) return null;
     return { id: session.user.id, email: session.user.email };
@@ -138,6 +145,6 @@
     return { moved: rows.length };
   }
 
-  global.Auth = { ready, user, onChange, signUp, signIn, signOut,
+  global.Auth = { ready, user, token, onChange, signUp, signIn, signOut,
                   list, add, remove, pushLocal, configured };
 })(window);

@@ -23,6 +23,7 @@
  *     page only tells it when a person clicks confirm.
  */
 import crypto from 'node:crypto';
+import { requireOwner } from './_owner.js';
 
 const HOST = 'https://api.elections.kalshi.com';
 const MAX_CONTRACTS = 500;          // guardrail, not a limit you should hit
@@ -39,11 +40,16 @@ function sign(privateKeyPem, timestamp, method, path) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'content-type');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+
+  // Nobody but the owner may spend money here. Fails closed.
+  const gate = await requireOwner(req);
+  if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
 
   const keyId = process.env.KALSHI_KEY_ID;
   const pem = (process.env.KALSHI_PRIVATE_KEY || '').replace(/\\n/g, '\n');
