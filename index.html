@@ -10,6 +10,8 @@
        Vercel serves /_vercel/insights/script.js once Analytics is enabled
        for the project. The @vercel/analytics npm package needs a bundler. -->
   <script defer src="/_vercel/insights/script.js"></script>
+  <script src="assets/supabase-config.js"></script>
+  <script src="assets/auth.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -84,6 +86,25 @@
       margin-bottom: clamp(28px, 5vh, 48px);
     }
 
+
+    .hero-auth {
+      display: flex; flex-direction: column; gap: 8px;
+      width: min(320px, calc(100vw - 48px)); margin: 0 auto;
+    }
+    .hero-auth input {
+      background: rgba(255,255,255,0.04); color: var(--text);
+      border: 1px solid var(--border-strong); border-radius: 8px;
+      padding: 11px 12px; font-size: 15px; font-family: inherit;
+      width: 100%;
+    }
+    .hero-auth input::placeholder { color: var(--muted); }
+    .hero-auth-actions { display: flex; gap: 8px; }
+    .hero-auth-actions .btn { flex: 1; text-align: center; }
+    .hero-auth-msg { font-size: 12px; color: var(--muted); min-height: 1em; }
+    .hero-auth-note {
+      font-size: 10.5px; color: var(--muted); line-height: 1.5; margin-top: 4px;
+    }
+
     .buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
     .btn {
       font-family: 'JetBrains Mono', monospace;
@@ -112,14 +133,74 @@
 
   <main class="center">
     <h1>Fulltime</h1>
-    <div class="buttons">
+    <div class="buttons" id="league-buttons">
       <a class="btn" href="epl.html">EPL</a>
       <a class="btn" href="nfl.html">NFL</a>
       <a class="btn" href="nba.html">NBA</a>
     </div>
+
+    <!-- Shown only when accounts are configured and nobody is signed in.
+         With no Supabase project the hero behaves exactly as it always has. -->
+    <form class="hero-auth" id="hero-auth" hidden autocomplete="on">
+      <div class="hero-auth-msg" id="hero-msg" role="status"></div>
+      <input id="hero-email" type="email" placeholder="you@example.com"
+             autocomplete="email" required aria-label="Email" />
+      <input id="hero-pass" type="password" placeholder="password"
+             autocomplete="current-password" required minlength="6" aria-label="Password" />
+      <div class="hero-auth-actions">
+        <button type="submit" class="btn">Sign in</button>
+        <button type="button" class="btn" id="hero-up">Create account</button>
+      </div>
+      <div class="hero-auth-note">
+        Fulltime never sees your Kalshi credentials and cannot trade for you.
+      </div>
+    </form>
   </main>
 
   <script>
+  /* Sign-in on the hero.
+   *
+   * Only takes over when Supabase is configured AND nobody is signed in —
+   * otherwise the league buttons show as normal, so an unconfigured site is
+   * completely unchanged. gate.js sends signed-out visitors here.
+   */
+  (async function heroAuth() {
+    const form = document.getElementById('hero-auth');
+    const buttons = document.getElementById('league-buttons');
+    if (!form || typeof Auth === 'undefined') return;
+    if (!Auth.configured()) return;
+    if (!(await Auth.ready())) return;
+
+    const go = () => {
+      let back = 'epl.html';
+      try { back = sessionStorage.getItem('fulltime-after-signin') || back; } catch (e) { /* ignore */ }
+      try { sessionStorage.removeItem('fulltime-after-signin'); } catch (e) { /* ignore */ }
+      location.href = back;
+    };
+
+    const paint = u => {
+      form.hidden = !!u;
+      buttons.hidden = !u;
+    };
+    paint(Auth.user());
+    Auth.onChange(u => { paint(u); if (u) go(); });
+
+    const msg = document.getElementById('hero-msg');
+    const email = document.getElementById('hero-email');
+    const pass = document.getElementById('hero-pass');
+    const attempt = async (fn, okText) => {
+      msg.textContent = '';
+      const { error } = await fn((email.value || '').trim(), pass.value);
+      msg.textContent = error || okText;
+      if (!error) pass.value = '';
+    };
+    form.addEventListener('submit', e => { e.preventDefault(); attempt(Auth.signIn, ''); });
+    document.getElementById('hero-up').addEventListener('click', () => {
+      if (!form.reportValidity()) return;
+      attempt(Auth.signUp, 'Check your email to confirm, then sign in.');
+    });
+  })();
+
   // Decorative only, and deliberately non-blocking: the hero renders instantly
   // and these fade in behind it if and when the data arrives.
   (async function () {

@@ -12,6 +12,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="assets/supabase-config.js"></script>
+  <script src="assets/auth.js"></script>
+  <script src="assets/auth-ui.js" defer></script>
+  <script src="assets/gate.js" defer></script>
   <script src="assets/theme.js"></script>
   <link rel="stylesheet" href="assets/terminal.css" />
   <!-- not deferred: the inline page script constructs TrendChart directly -->
@@ -41,6 +45,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
         <span class="term-tag" id="season-tag">NBA</span>
+        <button type="button" class="tb-btn nav-auth" id="nav-auth" hidden>Sign in</button>
         <button type="button" class="theme-btn" id="theme-toggle"></button>
       </div>
     </nav>
