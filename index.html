@@ -113,7 +113,18 @@
     }
     .hero-auth input::placeholder { color: var(--muted); }
     .hero-auth-actions { display: flex; gap: 8px; }
-    .hero-auth-actions .btn { flex: 1; text-align: center; }
+    /* Match the inputs above rather than the pill-shaped hero buttons: same
+       corner radius and the same vertical rhythm, so the form reads as one
+       block of four stacked fields instead of two shapes fighting each other.
+       The wide 34px pill padding was also forcing "Create account" onto two
+       lines. */
+    .hero-auth-actions .btn {
+      flex: 1; text-align: center;
+      border-radius: 8px;
+      padding: 11px 12px;
+      font-size: 14px;
+      white-space: nowrap;
+    }
     .hero-auth-msg { font-size: 12px; color: var(--muted); min-height: 1em; }
     .hero-auth-note {
       font-size: 10.5px; color: var(--muted); line-height: 1.5; margin-top: 4px;

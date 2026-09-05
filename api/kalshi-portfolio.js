@@ -1,9 +1,12 @@
 /**
- * Read your Kalshi balance and open positions.
+ * Read the owner's Kalshi balance and open positions.
  *
- * Same key, same reasoning as kalshi-order.js: it lives in a Vercel env var,
- * never in the browser. Read-only — this endpoint cannot place or cancel
- * anything.
+ * Same key and same reasoning as kalshi-order.js: it lives in a Vercel
+ * environment variable, never in the browser. Read-only — this endpoint cannot
+ * place or cancel anything.
+ *
+ * Owner-only. Other people can sign up and use the site; none of them can see
+ * this account. requireOwner fails closed.
  */
 import crypto from 'node:crypto';
 import { requireOwner } from './_owner.js';
@@ -23,7 +26,9 @@ function sign(pem, ts, method, path) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
+
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
 

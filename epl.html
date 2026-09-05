@@ -20,6 +20,7 @@
   <script src="assets/supabase-config.js"></script>
   <script src="assets/kalshi.js"></script>
   <script src="assets/auth.js"></script>
+  <script src="assets/trade.js"></script>
   <script src="assets/auth-ui.js" defer></script>
   <script src="assets/gate.js" defer></script>
   <script src="assets/dixon-coles.js"></script>
@@ -203,6 +204,26 @@
               <button type="submit" class="tb-btn">Add</button>
             </form>
             <div id="track-rows"></div>
+
+            <!-- Order ticket. Hidden unless trading is configured AND you are
+                 the owner account: other signed-in users never see it, and the
+                 server refuses them regardless. -->
+            <div class="ticket" id="ticket" hidden>
+              <div class="sim-sub">Place an order</div>
+              <div class="ticket-acct" id="tk-acct"></div>
+              <form class="pos-form" id="tk-form" autocomplete="off">
+                <select id="tk-fixture" aria-label="Fixture"></select>
+                <select id="tk-side" aria-label="Outcome"></select>
+                <input id="tk-count" type="number" min="1" max="500" step="1"
+                       value="10" aria-label="Contracts" title="Contracts" />
+                <input id="tk-price" type="number" min="1" max="99" step="1"
+                       value="50" aria-label="Limit price in cents" title="Limit price, cents" />
+                <button type="submit" class="tb-btn">Review</button>
+              </form>
+              <div class="tk-review" id="tk-review" hidden></div>
+              <div class="tk-msg" id="tk-msg"></div>
+            </div>
+
             <div class="sheet-foot" id="track-foot"></div>
           </div>
 
@@ -1039,6 +1060,114 @@
         '<span class="mk-note">market % · model minus market</span>';
     }
 
+    /* ── Order ticket ──────────────────────────────────────────────────────
+     *
+     * Review then confirm, always. Building the ticket and sending it are two
+     * separate clicks, and the review spells out contracts, limit price and
+     * worst-case cost before anything leaves the browser. This spends real
+     * money; one stray click should not.
+     *
+     * The page suggests nothing — no edge, no stake, no ranking of fixtures.
+     * The model loses to the market on its own history (50.4% against 51.9%),
+     * so a suggestion would be worse than no suggestion.
+     *
+     * Hidden unless the server says trading is configured AND you are the
+     * owner. Other signed-in users never see it, and would be refused anyway.
+     */
+    let ticketPending = null;
+
+    async function initTicket() {
+      const box = document.getElementById('ticket');
+      if (!box || typeof Trade === 'undefined') return;
+      const acct = await Trade.account();
+      if (!acct || !acct.configured) { box.hidden = true; return; }
+      box.hidden = false;
+
+      const acctEl = document.getElementById('tk-acct');
+      acctEl.textContent = acct.cents == null
+        ? 'Connected to Kalshi.'
+        : `Kalshi balance ${(acct.cents / 100).toLocaleString(undefined,
+            { style: 'currency', currency: 'USD' })}`;
+
+      const fx = document.getElementById('tk-fixture');
+      const side = document.getElementById('tk-side');
+      const review = document.getElementById('tk-review');
+      const msg = document.getElementById('tk-msg');
+      if (!fx.options.length) {
+        upcomingFixtures.slice(0, 60).forEach((m, i) => {
+          fx.appendChild(new Option(`${m.date.slice(5)} — ${m.team1} v ${m.team2}`, i));
+        });
+      }
+      const syncSides = () => {
+        const m = upcomingFixtures[Number(fx.value) || 0];
+        side.innerHTML = '';
+        if (!m) return;
+        side.appendChild(new Option(m.team1 + ' win', m.team1));
+        side.appendChild(new Option('Draw', 'tie'));
+        side.appendChild(new Option(m.team2 + ' win', m.team2));
+      };
+      fx.addEventListener('change', () => { syncSides(); review.hidden = true; });
+      syncSides();
+
+      document.getElementById('tk-form').addEventListener('submit', e => {
+        e.preventDefault();
+        msg.textContent = '';
+        const m = upcomingFixtures[Number(fx.value) || 0];
+        if (!m) return;
+        const count = Math.floor(Number(document.getElementById('tk-count').value));
+        const price = Math.floor(Number(document.getElementById('tk-price').value));
+        const ticker = Kalshi.gameKey('epl', m.date, m.team1, m.team2) + '-' +
+                       (side.value === 'tie' ? 'TIE' : Kalshi.code('epl', side.value));
+        const cost = Trade.maxCost(count, price);
+        const model = modelFor(m, side.value);
+        const market = kalshiData
+          ? Kalshi.impliedFor(kalshiData, 'epl', m.date, m.team1, m.team2, side.value) : null;
+
+        ticketPending = { ticker, action: 'buy', side: 'yes', count, price,
+                          client_order_id: Trade.newOrderId() };
+
+        review.hidden = false;
+        review.innerHTML = `
+          <div class="tk-r-head">Review — nothing is sent until you confirm</div>
+          <div class="tk-r-row"><span>Market</span><span>${esc(ticker)}</span></div>
+          <div class="tk-r-row"><span>Buying</span><span>${count} contracts of
+            <b>${esc(side.value === 'tie' ? 'Draw' : side.value)}</b></span></div>
+          <div class="tk-r-row"><span>Limit price</span><span>${price}¢</span></div>
+          <div class="tk-r-row"><span>Most you can pay</span>
+            <span><b>${(cost / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' })}</b></span></div>
+          <div class="tk-r-row"><span>If it wins</span>
+            <span>${(count * 100 / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' })}
+              · profit ${((count * 100 - cost) / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' })}</span></div>
+          <div class="tk-r-row"><span>If it loses</span>
+            <span>−${(cost / 100).toLocaleString(undefined, { style: 'currency', currency: 'USD' })}</span></div>
+          <div class="tk-r-row"><span>Model / market</span>
+            <span>${Math.round(model * 100)}% · ${market == null ? 'no book yet' : Math.round(market * 100) + '%'}</span></div>
+          <div class="tk-r-actions">
+            <button type="button" class="tb-btn" id="tk-cancel">Cancel</button>
+            <button type="button" class="tb-btn tk-confirm" id="tk-send">Confirm and send</button>
+          </div>`;
+
+        document.getElementById('tk-cancel').addEventListener('click', () => {
+          review.hidden = true; ticketPending = null;
+        });
+        document.getElementById('tk-send').addEventListener('click', async ev => {
+          const btn = ev.currentTarget;
+          if (!ticketPending) return;
+          btn.disabled = true; btn.textContent = 'Sending…';
+          const r = await Trade.place(ticketPending);
+          // A client_order_id is single-use: clear it so a second click cannot
+          // resend, and mint a fresh one for the next ticket.
+          ticketPending = null;
+          review.hidden = true;
+          msg.textContent = r.ok
+            ? 'Order sent to Kalshi.'
+            : 'Not sent — ' + r.error;
+          msg.className = 'tk-msg ' + (r.ok ? 'ok' : 'bad');
+          initTicket();                     // refresh the balance
+        });
+      });
+    }
+
     // ── Live scores (ESPN) ────────────────────────────────────────────────
     // Purely additive: if the feed is unavailable, liveByKey stays empty and
     // every render below behaves exactly as it did before.
@@ -1732,6 +1861,7 @@
     renderWeekList();
     renderPositions();
     initAuth();
+    initTicket();
     refreshKalshi();
     refreshMarket();
     setInterval(() => { if (!document.hidden) refreshMarket(); }, 120000);

@@ -13,6 +13,11 @@
  * Set them in Vercel → Settings → Environment Variables. They are never in the
  * repo, never sent to the browser, and never logged.
  *
+ * WHO MAY CALL THIS
+ * Only the account named by OWNER_USER_ID. Other people can sign up and use
+ * the site; none of them can reach this. requireOwner fails closed — an
+ * unconfigured owner check refuses everyone rather than admitting everyone.
+ *
  * SAFEGUARDS, and why each exists
  *   - POST only, one order per call. No batch endpoint to misuse.
  *   - MAX_CONTRACTS caps blast radius if the page is ever wrong.
@@ -20,7 +25,7 @@
  *   - The caller must send an explicit client_order_id, so a retry or a
  *     double-click cannot become two positions.
  *   - Nothing here decides WHAT to trade. It places what it is told, and the
- *     page only tells it when a person clicks confirm.
+ *     page only tells it after a person has reviewed and confirmed.
  */
 import crypto from 'node:crypto';
 import { requireOwner } from './_owner.js';
@@ -40,9 +45,8 @@ function sign(privateKeyPem, timestamp, method, path) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'content-type');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
 
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
