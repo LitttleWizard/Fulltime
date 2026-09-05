@@ -17,7 +17,9 @@
   <!-- not deferred: the inline page script constructs TrendChart directly -->
   <script src="assets/elo.js"></script>
   <script src="assets/season-sim.js"></script>
+  <script src="assets/supabase-config.js"></script>
   <script src="assets/kalshi.js"></script>
+  <script src="assets/auth.js"></script>
   <script src="assets/dixon-coles.js"></script>
   <script src="assets/live.js"></script>
   <script src="assets/players.js"></script>
@@ -155,6 +157,7 @@
                 <div class="prob-track"><div class="prob-fill away" id="bar-away" style="width:0%"></div></div>
                 <div class="prob-pct" id="pct-away">—</div>
               </div>
+              <div class="market-line" id="market-line" hidden></div>
               <div class="verdict" id="verdict"></div>
 
               <div class="scorelines" id="scorelines"></div>
@@ -173,6 +176,19 @@
             <div class="sheet-head">
               <div class="card-title">My Positions</div>
               <div class="sheet-note" id="track-note"></div>
+            </div>
+            <div class="auth-bar" id="auth-bar" hidden>
+              <span class="auth-state" id="auth-state"></span>
+              <form class="auth-form" id="auth-form" autocomplete="on">
+                <input id="auth-email" type="email" placeholder="email"
+                       autocomplete="email" aria-label="Email" />
+                <input id="auth-pass" type="password" placeholder="password"
+                       autocomplete="current-password" aria-label="Password" />
+                <button type="submit" class="tb-btn" id="auth-in">Sign in</button>
+                <button type="button" class="tb-btn" id="auth-up">Create</button>
+              </form>
+              <button type="button" class="tb-btn" id="auth-out" hidden>Sign out</button>
+              <span class="auth-msg" id="auth-msg"></span>
             </div>
             <form class="pos-form" id="pos-form" autocomplete="off">
               <select id="pos-fixture" aria-label="Fixture"></select>
@@ -803,6 +819,7 @@
       document.getElementById('symbol-price-label').textContent = `${fav} favored`;
 
       // Quote panel
+      renderMarketLine(home, away, shown);
       renderWatchlist();
 
       // Likeliest scorelines — only Dixon-Coles can produce these
@@ -975,6 +992,49 @@
       const b = e.target.closest('.chart-tab');
       if (b) setChartView(b.getAttribute('data-view'));
     });
+
+
+    /* ── Market comparison ─────────────────────────────────────────────────
+     *
+     * Kalshi's implied probability beside the model's, for the fixture on
+     * screen. Read-only, via the whitelisted proxy in /api/kalshi.
+     *
+     * A comparison and nothing more: no edge is computed and no stake is
+     * suggested. The model does not beat the market historically (50.4% against 51.9% on the same matches), so a
+     * gap is at least as likely to be the model being wrong — presenting it as
+     * an opportunity would misrepresent which of the two has the better record.
+     *
+     * Most fixtures have no book until close to kick-off, so the line hides
+     * itself rather than showing a row of dashes.
+     */
+    let marketData = null;
+
+    async function refreshMarket() {
+      marketData = await Kalshi.prices('epl');
+      render();
+    }
+
+    function renderMarketLine(home, away, shown) {
+      const el = document.getElementById('market-line');
+      if (!el) return;
+      const g = upcomingFixtures.find(m => m.team1 === home && m.team2 === away);
+      if (!marketData || !g) { el.hidden = true; return; }
+      const parts = [];
+      for (const [label, side, modelP] of [[home, home, shown.homeWin], ['Draw', 'tie', shown.draw], [away, away, shown.awayWin]]) {
+        const mk = Kalshi.impliedFor(marketData, 'epl', g.date, g.team1, g.team2, side);
+        if (mk == null) continue;
+        const d = Math.round((modelP - mk) * 100);
+        parts.push(
+          `<span class="mk-cell"><span class="mk-k">${esc(label)}</span>` +
+          `<span class="mk-v">${Math.round(mk * 100)}%</span>` +
+          `<span class="mk-d ${d > 4 ? 'pos' : d < -4 ? 'neg' : ''}">` +
+          `${d >= 0 ? '+' : ''}${d}</span></span>`);
+      }
+      if (!parts.length) { el.hidden = true; return; }
+      el.hidden = false;
+      el.innerHTML = '<span class="mk-label">Kalshi</span>' + parts.join('') +
+        '<span class="mk-note">market % · model minus market</span>';
+    }
 
     // ── Live scores (ESPN) ────────────────────────────────────────────────
     // Purely additive: if the feed is unavailable, liveByKey stays empty and
@@ -1427,6 +1487,61 @@
         `Early in a season these are wide by nature — that width is the honest answer, not a defect.`;
     }
 
+    /* ── Accounts ──────────────────────────────────────────────────────────
+     *
+     * Signing in moves positions from this browser into your account so they
+     * follow you between devices. Signed out, or with no Supabase project
+     * configured, everything falls back to localStorage and the page is
+     * unchanged — accounts are additive, never load-bearing.
+     *
+     * No password is stored here; Supabase handles that and this only sees a
+     * session token. No Kalshi credential is involved at any point: this
+     * cannot see your Kalshi account and cannot place a trade.
+     */
+    async function initAuth() {
+      const bar = document.getElementById('auth-bar');
+      if (!bar || typeof Auth === 'undefined') return;
+      const on = await Auth.ready();
+      if (!on) {                       // not configured: stay fully local
+        bar.hidden = true;
+        return;
+      }
+      bar.hidden = false;
+
+      const form = document.getElementById('auth-form');
+      const msg = document.getElementById('auth-msg');
+      const state = document.getElementById('auth-state');
+      const out = document.getElementById('auth-out');
+      const email = document.getElementById('auth-email');
+      const pass = document.getElementById('auth-pass');
+
+      const paint = async u => {
+        form.hidden = !!u;
+        out.hidden = !u;
+        state.textContent = u ? `Signed in as ${u.email}` : 'Positions saved to this browser only';
+        if (u) {
+          const r = await Auth.pushLocal('epl');
+          if (r && r.moved) msg.textContent = `Moved ${r.moved} position${r.moved > 1 ? 's' : ''} to your account.`;
+        }
+        renderPositions();
+      };
+
+      Auth.onChange(paint);
+      await paint(Auth.user());
+
+      const attempt = async fn => {
+        msg.textContent = '';
+        const v = (email.value || '').trim();
+        if (!v || !pass.value) { msg.textContent = 'Email and password required.'; return; }
+        const { error } = await fn(v, pass.value);
+        msg.textContent = error || 'Check your email to confirm, then sign in.';
+        if (!error) pass.value = '';
+      };
+      form.addEventListener('submit', e => { e.preventDefault(); attempt(Auth.signIn); });
+      document.getElementById('auth-up').addEventListener('click', () => attempt(Auth.signUp));
+      out.addEventListener('click', async () => { await Auth.signOut(); msg.textContent = ''; });
+    }
+
     /* ── Positions against the model and the market ────────────────────────
      *
      * Football settles three ways, so a position is a FIXTURE plus an OUTCOME,
@@ -1455,10 +1570,11 @@
       return side === m.team1 ? pr.homeWin : pr.awayWin;
     }
 
-    function renderPositions() {
+    async function renderPositions() {
       const rowsEl = document.getElementById('track-rows');
       if (!rowsEl) return;
-      const list = Kalshi.positions('epl');
+      const signedIn = typeof Auth !== 'undefined' && Auth.user();
+      const list = signedIn ? await Auth.list('epl') : Kalshi.positions('epl');
       if (!list.length) {
         rowsEl.innerHTML = '<div class="moves-empty">No positions yet. Pick a fixture and an ' +
                            'outcome above, enter how many contracts and what you paid.</div>';
@@ -1507,8 +1623,10 @@
       document.getElementById('track-foot').innerHTML = FOOT;
 
       rowsEl.querySelectorAll('.pos-del').forEach(b => {
-        b.addEventListener('click', () => {
-          Kalshi.removePosition('epl', b.getAttribute('data-del'));
+        b.addEventListener('click', async () => {
+          const id = b.getAttribute('data-del');
+          if (signedIn) await Auth.remove('epl', id);
+          else Kalshi.removePosition('epl', id);
           renderPositions();
         });
       });
@@ -1542,15 +1660,17 @@
       };
       fx.addEventListener('change', syncSides);
       syncSides();
-      form.addEventListener('submit', e => {
+      form.addEventListener('submit', async e => {
         e.preventDefault();
         const m = upcomingFixtures[Number(fx.value) || 0];
         if (!m) return;
-        Kalshi.addPosition('epl', {
+        const p = {
           date: m.date, home: m.team1, away: m.team2, side: side.value,
           contracts: document.getElementById('pos-contracts').value,
           price: document.getElementById('pos-price').value
-        });
+        };
+        if (typeof Auth !== 'undefined' && Auth.user()) await Auth.add('epl', p);
+        else Kalshi.addPosition('epl', p);
         renderPositions();
       });
     })();
@@ -1608,7 +1728,10 @@
     render();
     renderWeekList();
     renderPositions();
+    initAuth();
     refreshKalshi();
+    refreshMarket();
+    setInterval(() => { if (!document.hidden) refreshMarket(); }, 120000);
     setInterval(() => { if (!document.hidden) refreshKalshi(); }, 120000);
     // Simulation is heavy enough to keep off the critical path; the page is
     // fully usable before it lands.

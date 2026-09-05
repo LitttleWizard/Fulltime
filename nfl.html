@@ -133,6 +133,7 @@
                 <div class="prob-track"><div class="prob-fill home" id="bar-home" style="width:0%"></div></div>
                 <div class="prob-pct" id="pct-home">—</div>
               </div>
+              <div class="market-line" id="market-line" hidden></div>
               <div class="verdict" id="verdict"></div>
               <div class="projected" id="projected"></div>
 
@@ -889,6 +890,7 @@
       renderWatchlist();
       renderMoves(home, away);
       renderTrendChart(elo, home, away);
+      renderMarketLine(home, away, p);
       renderSim(home, away, p);
       renderContinuity(home, away, p);
       if (typeof renderWeekList === 'function') renderWeekList();
@@ -1161,6 +1163,49 @@
       'exists. The model does not beat the market historically (64.6% against 67.9% on the same ' +
       'games), so treat a gap as at least as likely to be the model\'s error as an edge.';
 
+
+    /* ── Market comparison ─────────────────────────────────────────────────
+     *
+     * Kalshi's implied probability beside the model's, for the fixture on
+     * screen. Read-only, via the whitelisted proxy in /api/kalshi.
+     *
+     * A comparison and nothing more: no edge is computed and no stake is
+     * suggested. The model does not beat the market historically (64.6% against 67.9% on the same games), so a
+     * gap is at least as likely to be the model being wrong — presenting it as
+     * an opportunity would misrepresent which of the two has the better record.
+     *
+     * Most fixtures have no book until close to kick-off, so the line hides
+     * itself rather than showing a row of dashes.
+     */
+    let marketData = null;
+
+    async function refreshMarket() {
+      marketData = await Kalshi.prices('nfl');
+      render();
+    }
+
+    function renderMarketLine(home, away, p) {
+      const el = document.getElementById('market-line');
+      if (!el) return;
+      const g = upcoming.find(x => x.home === home && x.away === away);
+      if (!marketData || !g) { el.hidden = true; return; }
+      const parts = [];
+      for (const [label, side, modelP] of [[teamName(away), away, p.awayWin], [teamName(home), home, p.homeWin]]) {
+        const mk = Kalshi.impliedFor(marketData, 'nfl', g.date, g.home, g.away, side);
+        if (mk == null) continue;
+        const d = Math.round((modelP - mk) * 100);
+        parts.push(
+          `<span class="mk-cell"><span class="mk-k">${esc(label)}</span>` +
+          `<span class="mk-v">${Math.round(mk * 100)}%</span>` +
+          `<span class="mk-d ${d > 4 ? 'pos' : d < -4 ? 'neg' : ''}">` +
+          `${d >= 0 ? '+' : ''}${d}</span></span>`);
+      }
+      if (!parts.length) { el.hidden = true; return; }
+      el.hidden = false;
+      el.innerHTML = '<span class="mk-label">Kalshi</span>' + parts.join('') +
+        '<span class="mk-note">market % · model minus market</span>';
+    }
+
     // Live scores (ESPN). Additive only — silent no-op if the feed is down.
     let liveByKey = Object.create(null);
     const liveKey = (h, a) => `${h}|${a}`;
@@ -1330,6 +1375,8 @@
 
     renderTracked();
     refreshKalshi();
+    refreshMarket();
+    setInterval(() => { if (!document.hidden) refreshMarket(); }, 120000);
     setInterval(() => { if (!document.hidden) refreshKalshi(); }, 120000);
     setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshLive(); });
