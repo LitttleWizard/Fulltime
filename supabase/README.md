@@ -15,8 +15,33 @@ only ever holds the **anon** key, which is public by design.
    window.SUPABASE_ANON_KEY = 'eyJ…';
    ```
 
-5. **Authentication → Providers**, make sure Email is enabled. Turn on
-   "Confirm email" if you want verification.
+5. **Authentication → Providers**, make sure Email is enabled.
+6. **Turn on "Confirm email"** (Authentication → Providers → Email). With the
+   site open to other people this matters: without it anyone can create an
+   account on any address they like, including someone else's.
+7. **Authentication → Rate limits** — leave the defaults on. They are what stops
+   someone brute-forcing sign-ins or mass-creating accounts.
+
+## Because other people can sign up
+
+- **Every table needs RLS.** `schema.sql` enables it on `positions` with one
+  policy per verb. Any table added later without it is readable by anyone with
+  the anon key, which is everyone.
+- **Signing up gets an account, not the ability to trade.** The order endpoint
+  checks `OWNER_USER_ID` and refuses every other user with 403.
+- **Nobody's Kalshi credentials are ever collected.** Kalshi has no OAuth, so
+  connecting an account would mean storing other people's RSA private keys —
+  keys that can place and cancel orders on their accounts. The site does not
+  ask for them and must not be extended to. Other users track positions they
+  type in.
+- **Check what a signed-in stranger can read:**
+
+  ```sql
+  select tablename from pg_tables where schemaname = 'public'
+    and tablename not in (select tablename from pg_policies);
+  ```
+
+  Anything listed is world-readable. Fix before inviting anyone.
 
 ## What is and is not safe here
 

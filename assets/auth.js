@@ -90,6 +90,7 @@
   async function signOut() {
     if (client) await client.auth.signOut();
     session = null;
+    clearLocalSession();          // never leave one user's data for the next
     listeners.forEach(fn => { try { fn(null); } catch (e) { /* isolate */ } });
   }
 
@@ -129,7 +130,15 @@
   /**
    * Copy anything already in localStorage up to the account, once, on first
    * sign-in — otherwise signing in would appear to wipe your positions.
-   * Local rows are left alone so a failed upload loses nothing.
+   *
+   * The local rows are DELETED once they are safely uploaded, and that is not
+   * tidiness. localStorage is per-browser, not per-user: leaving them behind
+   * means the next person to sign in on this machine has no migration flag of
+   * their own, finds those rows still sitting there, and inherits a stranger's
+   * positions into their account. Invisible with one user; a data leak with
+   * two. Clearing on success is what closes it.
+   *
+   * On failure they are kept, so a bad upload loses nothing.
    */
   async function pushLocal(league) {
     const u = user();
@@ -141,10 +150,33 @@
     const rows = local.map(p => Object.assign(toRow(league, p), { user_id: u.id }));
     const { error } = await client.from('positions').insert(rows);
     if (error) return { moved: 0, error: error.message };
-    try { localStorage.setItem(flag, '1'); } catch (e) { /* ignore */ }
+    try {
+      localStorage.setItem(flag, '1');
+      localStorage.removeItem(`fulltime-positions-${league}`);   // now the account's
+    } catch (e) { /* private mode */ }
     return { moved: rows.length };
   }
 
+  /**
+   * Wipe anything session-shaped from this browser.
+   *
+   * Called on sign-out because the next person to use this machine must not
+   * see, or inherit, what the last one entered. Anyone signing out has already
+   * had their positions migrated to their account, so nothing is lost.
+   */
+  function clearLocalSession() {
+    try {
+      const kill = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith('fulltime-positions-') ||
+                  k.startsWith('fulltime-tracked-') ||
+                  k.startsWith('fulltime-migrated-'))) kill.push(k);
+      }
+      kill.forEach(k => localStorage.removeItem(k));
+    } catch (e) { /* private mode */ }
+  }
+
   global.Auth = { ready, user, token, onChange, signUp, signIn, signOut,
-                  list, add, remove, pushLocal, configured };
+                  list, add, remove, pushLocal, clearLocalSession, configured };
 })(window);
