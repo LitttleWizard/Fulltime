@@ -87,6 +87,20 @@
     }
 
 
+    /* An explicit display beats the UA's [hidden] rule, so restore it —
+       otherwise `hidden` silently does nothing on this element. */
+    .hero-auth[hidden], .buttons[hidden], .hero-setup[hidden] { display: none; }
+    .hero-setup {
+      width: min(400px, calc(100vw - 48px)); margin: 0 auto;
+      border: 1px solid var(--border-strong); border-radius: 10px;
+      padding: 16px 18px; background: rgba(255,255,255,0.03); text-align: left;
+    }
+    .hero-setup-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    .hero-setup-body { font-size: 11.5px; color: var(--muted); line-height: 1.6; }
+    .hero-setup-body code {
+      font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+      background: rgba(255,255,255,0.06); padding: 1px 4px; border-radius: 3px;
+    }
     .hero-auth {
       display: flex; flex-direction: column; gap: 8px;
       width: min(320px, calc(100vw - 48px)); margin: 0 auto;
@@ -133,10 +147,18 @@
 
   <main class="center">
     <h1>Fulltime</h1>
-    <div class="buttons" id="league-buttons">
-      <a class="btn" href="epl.html">EPL</a>
-      <a class="btn" href="nfl.html">NFL</a>
-      <a class="btn" href="nba.html">NBA</a>
+    <!-- No way past this page without an account. When accounts are not yet
+         configured there is deliberately no fallback link: the setup notice
+         below explains why nothing opens, rather than leaving a dead page. -->
+    <div class="hero-setup" id="hero-setup" hidden>
+      <div class="hero-setup-title">Accounts are not configured</div>
+      <div class="hero-setup-body">
+        Sign-in is required to reach the league pages, but no authentication
+        project is set up yet, so nobody can get in — including you.
+        Add your Supabase URL and anon key to
+        <code>assets/supabase-config.js</code> and run
+        <code>supabase/schema.sql</code>. See <code>supabase/README.md</code>.
+      </div>
     </div>
 
     <!-- Shown only when accounts are configured and nobody is signed in.
@@ -166,38 +188,61 @@
    */
   (async function heroAuth() {
     const form = document.getElementById('hero-auth');
-    const buttons = document.getElementById('league-buttons');
-    if (!form || typeof Auth === 'undefined') return;
-    if (!Auth.configured()) return;
-    if (!(await Auth.ready())) return;
+    const setup = document.getElementById('hero-setup');
+    if (!form) return;
 
-    const go = () => {
+    /* Where to send someone who is allowed in: back to whatever they were
+       trying to reach when the gate bounced them, else the EPL tab. */
+    const destination = () => {
       let back = 'epl.html';
       try { back = sessionStorage.getItem('fulltime-after-signin') || back; } catch (e) { /* ignore */ }
       try { sessionStorage.removeItem('fulltime-after-signin'); } catch (e) { /* ignore */ }
-      location.href = back;
+      return back;
     };
+    const go = () => { location.href = destination(); };
 
-    const paint = u => {
-      form.hidden = !!u;
-      buttons.hidden = !u;
-    };
-    paint(Auth.user());
-    Auth.onChange(u => { paint(u); if (u) go(); });
+    // Distinguish "never set up" from "set up but unreachable". Showing setup
+    // instructions during a Supabase outage would send you chasing the wrong
+    // problem.
+    const haveConfig = typeof Auth !== 'undefined' && Auth.configured();
+    if (!haveConfig) { setup.hidden = false; return; }
+    if (!(await Auth.ready())) {
+      setup.hidden = false;
+      document.querySelector('.hero-setup-title').textContent = 'Sign-in is unavailable';
+      document.querySelector('.hero-setup-body').textContent =
+        'The authentication service could not be reached, so nobody can sign in ' +
+        'right now. This is usually temporary — try again shortly.';
+      return;
+    }
 
+    // Already signed in — the hero has no other job, so pass straight through.
+    if (Auth.user()) { go(); return; }
+
+    form.hidden = false;
     const msg = document.getElementById('hero-msg');
     const email = document.getElementById('hero-email');
     const pass = document.getElementById('hero-pass');
-    const attempt = async (fn, okText) => {
-      msg.textContent = '';
+
+    // Signing in, and signing up where the project does not require email
+    // confirmation, both produce a session — this fires either way.
+    Auth.onChange(u => { if (u) go(); });
+
+    const attempt = async (fn, pending) => {
+      msg.textContent = pending;
       const { error } = await fn((email.value || '').trim(), pass.value);
-      msg.textContent = error || okText;
-      if (!error) pass.value = '';
+      if (error) { msg.textContent = error; return; }
+      pass.value = '';
+      // A session arrives asynchronously; onChange redirects. If confirmation
+      // is required none will come, so say so rather than hanging on "…".
+      setTimeout(() => {
+        if (!Auth.user()) msg.textContent = 'Check your email to confirm, then sign in.';
+      }, 1200);
     };
-    form.addEventListener('submit', e => { e.preventDefault(); attempt(Auth.signIn, ''); });
+
+    form.addEventListener('submit', e => { e.preventDefault(); attempt(Auth.signIn, 'Signing in…'); });
     document.getElementById('hero-up').addEventListener('click', () => {
       if (!form.reportValidity()) return;
-      attempt(Auth.signUp, 'Check your email to confirm, then sign in.');
+      attempt(Auth.signUp, 'Creating your account…');
     });
   })();
 

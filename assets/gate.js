@@ -1,22 +1,20 @@
 /**
  * Sign-in gate for the league tabs.
  *
- * Sends anyone without a session back to the hero page, which doubles as the
- * sign-in surface.
+ * No session, no entry — anyone without one is sent to the hero, which is the
+ * only sign-in surface. There is deliberately no fallback: if accounts are not
+ * configured, nobody gets in, including the owner, and the hero says so rather
+ * than leaving a dead page.
  *
- * BE CLEAR ABOUT WHAT THIS IS. This is a UX gate, not access control. The site
- * is static: every data file under /data is still fetchable by URL, and the
- * page source is public. Anyone determined can read the numbers without an
- * account. What this changes is the front door, not the walls.
+ * BE CLEAR ABOUT WHAT THIS IS. It is a UX gate, not access control. The site is
+ * static: every file under /data is still fetchable by URL and the page source
+ * is public, so a determined visitor can read the numbers without an account.
+ * What this controls is the front door, not the walls. Real protection would
+ * mean serving data through authenticated endpoints — a different architecture,
+ * not a flag.
  *
- * Real protection would mean serving data through authenticated endpoints
- * instead of static files — a different architecture, not a flag.
- *
- * Two deliberate escape hatches, because locking the owner out of their own
- * site would be worse than not gating at all:
- *   - If Supabase is not configured, nothing is gated.
- *   - If the auth check errors or times out, nothing is gated.
- * Failing open is the right default for a gate whose job is tidiness.
+ * The page is hidden before paint so a signed-out visitor never sees a flash of
+ * content on the way out.
  */
 (function (global) {
   'use strict';
@@ -25,7 +23,6 @@
   const TIMEOUT_MS = 6000;
 
   function hide() {
-    // Hide before paint so a signed-out visitor never sees a flash of content.
     const s = document.createElement('style');
     s.id = 'gate-style';
     s.textContent = '.shell{visibility:hidden}';
@@ -37,30 +34,36 @@
     if (style && style.parentNode) style.parentNode.removeChild(style);
   }
 
-  async function check() {
-    if (typeof Auth === 'undefined' || !Auth.configured || !Auth.configured()) {
-      return;                                   // not configured: no gate
-    }
-    const style = hide();
-    let configured = false;
-    try {
-      configured = await Promise.race([
-        Auth.ready(),
-        new Promise(r => setTimeout(() => r(false), TIMEOUT_MS))
-      ]);
-    } catch (e) {
-      configured = false;
-    }
-    if (!configured) { reveal(style); return; }  // fail open
-
-    if (Auth.user()) { reveal(style); return; }
-
-    // Remember where they were headed, so signing in can return them.
+  function bounce(reason) {
+    // Remember where they were headed so signing in can return them there.
     try {
       sessionStorage.setItem('fulltime-after-signin',
         location.pathname.split('/').pop() + location.search);
     } catch (e) { /* private mode */ }
-    location.replace(HOME + '?signin=1');
+    location.replace(`${HOME}?signin=1&why=${encodeURIComponent(reason)}`);
+  }
+
+  async function check() {
+    const style = hide();
+
+    if (typeof Auth === 'undefined' || !Auth.configured || !Auth.configured()) {
+      bounce('unconfigured');
+      return;
+    }
+
+    let up = false;
+    try {
+      up = await Promise.race([
+        Auth.ready(),
+        new Promise(r => setTimeout(() => r(false), TIMEOUT_MS))
+      ]);
+    } catch (e) {
+      up = false;
+    }
+    if (!up) { bounce('unreachable'); return; }
+
+    if (Auth.user()) { reveal(style); return; }
+    bounce('signedout');
   }
 
   if (document.readyState === 'loading') {
