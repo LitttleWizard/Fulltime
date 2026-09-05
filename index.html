@@ -83,8 +83,14 @@
       font-size: clamp(58px, 15vw, 180px);
       font-weight: 800; letter-spacing: -0.05em; line-height: 1;
       color: #fff;
-      margin-bottom: clamp(28px, 5vh, 48px);
+      /* Tight to the sign-in below it: the wordmark and the form should read as
+         one block, not two things that happen to share a page. The old
+         clamp(28px, 5vh, 48px) left them drifting apart on tall screens. */
+      margin-bottom: clamp(14px, 2.2vh, 22px);
     }
+    /* The descender on the "F" already carries optical space, so the form can
+       sit closer than the metric gap suggests. */
+    h1 + .hero-auth { margin-top: -2px; }
 
 
     /* An explicit display beats the UA's [hidden] rule, so restore it —
